@@ -81,9 +81,9 @@ export default function AppSidebar() {
               {/* Settings */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
-                  <Link href="/settings">
+                  <Link href="/compare">
                     <Settings className="mr-2 h-4 w-4" />
-                    Settings
+                    Compare
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

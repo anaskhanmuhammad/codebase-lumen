@@ -10,6 +10,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppSidebar from "@/components/Sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { ThemeProvider } from "@/providers/theme-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,48 +31,55 @@ export default function RootLayout({ children }) {
   return (
     <ClerkProvider>
       <html lang="en">
-        <SidebarProvider>
-          <body
-            className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen w-screen overflow-hidden`}
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen w-screen `}
+        >
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
           >
-            <div className="flex h-full w-full">
-              {/* 🧭 Sidebar */}
-              <AppSidebar />
+            <SidebarProvider>
+              <div className="flex h-full w-full">
+                {/* 🧭 Sidebar */}
+                <AppSidebar />
 
-              {/* 📦 Main content area */}
-              <div className="flex flex-col flex-1 min-w-0 h-full bg-white">
-                {/* Header */}
-                <header className="flex items-center justify-between px-4 border-b h-16 shrink-0 bg-white">
-                  {/* Left side */}
-                  <div className="flex items-center">
-                    <SidebarTrigger className="mr-2" />
-                    <h1 className="text-lg font-semibold">Lumen Dashboard</h1>
-                  </div>
+                {/* 📦 Main content area */}
+                <div className="flex flex-col flex-1 min-w-0 h-full ">
+                  {/* Header */}
+                  <header className="flex items-center justify-between px-4 border-b h-16 shrink-0">
+                    {/* Left side */}
+                    <div className="flex items-center">
+                      <SidebarTrigger className="mr-2" />
+                      <h1 className="text-lg font-semibold">Lumen Dashboard</h1>
+                    </div>
 
-                  {/* Right side */}
-                  <div className="flex items-center gap-4">
-                    <SignedOut>
-                      <SignInButton />
-                      <SignUpButton>
-                        <button className="bg-[#6c47ff] text-ceramic-white rounded-full font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 cursor-pointer">
-                          Sign Up
-                        </button>
-                      </SignUpButton>
-                    </SignedOut>
-                    <SignedIn>
-                      <UserButton />
-                    </SignedIn>
-                  </div>
-                </header>
+                    {/* Right side */}
+                    <div className="flex items-center gap-4">
+                      <SignedOut>
+                        <SignInButton />
+                        <SignUpButton>
+                          <button className="bg-[#6c47ff] text-ceramic-white rounded-full font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 cursor-pointer">
+                            Sign Up
+                          </button>
+                        </SignUpButton>
+                      </SignedOut>
+                      <SignedIn>
+                        <UserButton />
+                      </SignedIn>
+                    </div>
+                  </header>
 
-                {/* Main content */}
-                <main className="flex-1 p-6 overflow-y-auto min-w-0 bg-white">
-                  {children}
-                </main>
+                  {/* Main content */}
+                  <main className="flex-1 p-6 overflow-y-auto min-w-0">
+                    {children}
+                  </main>
+                </div>
               </div>
-            </div>
-          </body>
-        </SidebarProvider>
+            </SidebarProvider>
+          </ThemeProvider>
+        </body>
       </html>
     </ClerkProvider>
   );
