@@ -23,7 +23,7 @@
 # misc
 .DS_Store
 *.pem
-
+temp_analysis
 # debug
 npm-debug.log*
 yarn-debug.log*
