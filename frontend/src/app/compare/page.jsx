@@ -30,6 +30,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { analyzeCode } from "./actions/analyzeCode";
+import { analyzeSemgrep } from "./actions/analyzeSemgrep";
 
 const Compare = () => {
   const [humanCode, setHumanCode] = useState("");
@@ -48,23 +49,32 @@ const Compare = () => {
     setResults(null);
 
     try {
-      const response = await analyzeCode(humanCode, llmCode);
+      // Run Sonar + Semgrep at the same time
+      const [sonar, semgrep] = await Promise.all([
+        analyzeCode(humanCode, llmCode),
+        analyzeSemgrep(humanCode, llmCode),
+      ]);
 
-      if (response.success) {
-        // Log the full response to debug
-        console.log(
-          "Full analysis results:",
-          JSON.stringify(response, null, 2)
-        );
-        console.log("Human measures:", response.human?.component?.measures);
-        console.log("LLM measures:", response.llm?.component?.measures);
-        setResults(response);
-      } else {
-        setError(response.error || "Analysis failed");
+      if (!sonar.success || !semgrep.success) {
+        throw new Error("One of the analyses failed.");
       }
+
+      // merge results into single object
+      setResults({
+        sessionId: sonar.sessionId,
+        human: {
+          ...sonar.human,
+          measures: sonar.human.component?.measures,
+          findings: semgrep.human.findings,
+        },
+        llm: {
+          ...sonar.llm,
+          measures: sonar.llm.component?.measures,
+          findings: semgrep.llm.findings,
+        },
+      });
     } catch (err) {
-      setError(err.message || "An unexpected error occurred");
-      console.error("Analysis error:", err);
+      setError(err.message);
     } finally {
       setIsAnalyzing(false);
     }
@@ -137,7 +147,6 @@ const Compare = () => {
             quality metrics
           </p>
         </div>
-
         {/* Alert Info */}
         <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
           <AlertCircle className="h-4 w-4 text-blue-600" />
@@ -146,7 +155,6 @@ const Compare = () => {
             run comprehensive security and quality analysis
           </AlertDescription>
         </Alert>
-
         {/* Error Alert */}
         {error && (
           <Alert className="border-red-200 bg-red-50 dark:bg-red-950/20">
@@ -156,7 +164,6 @@ const Compare = () => {
             </AlertDescription>
           </Alert>
         )}
-
         {/* Main Comparison Area */}
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Human Code Section */}
@@ -235,7 +242,6 @@ const Compare = () => {
             </CardContent>
           </Card>
         </div>
-
         {/* Action Buttons */}
         <div className="flex items-center justify-center gap-4">
           <Button
@@ -264,247 +270,163 @@ const Compare = () => {
             Clear All
           </Button>
         </div>
-
-        {/* Results Section */}
+        Results Section
         {results && (
-          <Card className="border-2 border-green-200 bg-green-50/50 dark:bg-green-950/20">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-6 w-6 text-green-600" />
-                <CardTitle>Analysis Complete</CardTitle>
-              </div>
-              <CardDescription>Session ID: {results.sessionId}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="overview">Overview</TabsTrigger>
-                  <TabsTrigger value="security">Security</TabsTrigger>
-                  <TabsTrigger value="quality">Quality</TabsTrigger>
-                </TabsList>
+          <div className="space-y-6">
+            {/* ✅ SONARQUBE SECTION */}
+            <Card className="border-2 border-blue-200 bg-blue-50/50 dark:bg-blue-950/20">
+              <CardHeader>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-blue-600" />
+                  SonarQube Analysis
+                </h2>
+                <CardDescription>
+                  Session ID: {results.sessionId}
+                </CardDescription>
+              </CardHeader>
 
-                <TabsContent value="overview" className="space-y-4">
-                  <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-                    <MetricCard
-                      icon={Bug}
-                      title="Bugs"
-                      humanValue={getMetricValue(
-                        results.human?.component?.measures,
-                        "bugs"
-                      )}
-                      llmValue={getMetricValue(
-                        results.llm?.component?.measures,
-                        "bugs"
-                      )}
-                      color="text-red-600"
-                    />
-                    <MetricCard
-                      icon={Shield}
-                      title="Vulnerabilities"
-                      humanValue={getMetricValue(
-                        results.human?.component?.measures,
-                        "vulnerabilities"
-                      )}
-                      llmValue={getMetricValue(
-                        results.llm?.component?.measures,
-                        "vulnerabilities"
-                      )}
-                      color="text-orange-600"
-                    />
-                    <MetricCard
-                      icon={AlertTriangle}
-                      title="Code Smells"
-                      humanValue={getMetricValue(
-                        results.human?.component?.measures,
-                        "code_smells"
-                      )}
-                      llmValue={getMetricValue(
-                        results.llm?.component?.measures,
-                        "code_smells"
-                      )}
-                      color="text-yellow-600"
-                    />
-                    <MetricCard
-                      icon={AlertCircle}
-                      title="Security Hotspots"
-                      humanValue={getMetricValue(
-                        results.human?.component?.measures,
-                        "security_hotspots"
-                      )}
-                      llmValue={getMetricValue(
-                        results.llm?.component?.measures,
-                        "security_hotspots"
-                      )}
-                      color="text-purple-600"
-                    />
-                  </div>
+              <CardContent className="space-y-4">
+                {/* ✅ HUMAN SONAR */}
+                <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Human Code Metrics
+                  </h3>
 
-                  <div className="grid md:grid-cols-2 gap-4 mt-4">
-                    <MetricCard
-                      icon={Code2}
-                      title="Lines of Code"
-                      humanValue={getMetricValue(
-                        results.human?.component?.measures,
-                        "ncloc"
-                      )}
-                      llmValue={getMetricValue(
-                        results.llm?.component?.measures,
-                        "ncloc"
-                      )}
-                      color="text-blue-600"
-                    />
-                    <MetricCard
-                      icon={TrendingUp}
-                      title="Complexity"
-                      humanValue={getMetricValue(
-                        results.human?.component?.measures,
-                        "complexity"
-                      )}
-                      llmValue={getMetricValue(
-                        results.llm?.component?.measures,
-                        "complexity"
-                      )}
-                      color="text-indigo-600"
-                    />
-                  </div>
-                </TabsContent>
+                  <ul className="text-sm space-y-1">
+                    {results.human?.component?.measures?.map((m, idx) => (
+                      <li key={idx} className="flex justify-between">
+                        <span>{m.metric}:</span>
+                        <span className="font-bold">{m.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-                <TabsContent value="security" className="space-y-4">
-                  <div className="grid md:grid-cols-2 gap-4 mt-4">
-                    <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <User className="h-4 w-4" />
-                        Human Code Security
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Vulnerabilities:</span>
-                          <Badge variant="destructive">
-                            {getMetricValue(
-                              results.human?.component?.measures,
-                              "vulnerabilities"
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Security Hotspots:</span>
-                          <Badge variant="outline">
-                            {getMetricValue(
-                              results.human?.component?.measures,
-                              "security_hotspots"
-                            )}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <Bot className="h-4 w-4" />
-                        LLM Code Security
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Vulnerabilities:</span>
-                          <Badge variant="destructive">
-                            {getMetricValue(
-                              results.llm?.component?.measures,
-                              "vulnerabilities"
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Security Hotspots:</span>
-                          <Badge variant="outline">
-                            {getMetricValue(
-                              results.llm?.component?.measures,
-                              "security_hotspots"
-                            )}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
+                {/* ✅ LLM SONAR */}
+                <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <Bot className="h-4 w-4" />
+                    LLM Code Metrics
+                  </h3>
 
-                <TabsContent value="quality" className="space-y-4">
-                  <div className="grid md:grid-cols-2 gap-4 mt-4">
-                    <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <User className="h-4 w-4" />
-                        Human Code Quality
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Bugs:</span>
-                          <Badge variant="destructive">
-                            {getMetricValue(
-                              results.human?.component?.measures,
-                              "bugs"
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Code Smells:</span>
-                          <Badge variant="secondary">
-                            {getMetricValue(
-                              results.human?.component?.measures,
-                              "code_smells"
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Complexity:</span>
-                          <Badge variant="outline">
-                            {getMetricValue(
-                              results.human?.component?.measures,
-                              "complexity"
-                            )}
-                          </Badge>
-                        </div>
-                      </div>
+                  <ul className="text-sm space-y-1">
+                    {results.llm?.component?.measures?.map((m, idx) => (
+                      <li key={idx} className="flex justify-between">
+                        <span>{m.metric}:</span>
+                        <span className="font-bold">{m.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ✅ SEMGREP SECTION */}
+            <Card className="border-2 border-red-200 bg-red-50/50 dark:bg-red-950/20">
+              <CardHeader>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Bug className="h-5 w-5 text-red-600" />
+                  Semgrep Findings
+                </h2>
+              </CardHeader>
+
+              <CardContent className="space-y-6">
+                {/* ✅ LLM SEMGREP FINDINGS */}
+                <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
+                  <h3 className="font-semibold flex items-center gap-2 mb-3">
+                    <Bot className="h-4 w-4" />
+                    LLM Code Findings
+                    <Badge>
+                      {results.segrep?.llm?.findings?.length ||
+                        results.llm?.findings?.length}
+                    </Badge>
+                  </h3>
+
+                  {(results.llm?.findings || []).map((f, i) => (
+                    <div key={i} className="mb-4 p-3 border rounded-lg">
+                      <p>
+                        <strong>Rule:</strong> {f.check_id}
+                      </p>
+                      <p>
+                        <strong>Severity:</strong> {f.extra?.severity}
+                      </p>
+                      <p>
+                        <strong>Message:</strong> {f.extra?.message}
+                      </p>
+                      <p>
+                        <strong>Location:</strong> Line {f.start?.line}, Col{" "}
+                        {f.start?.col}
+                      </p>
+
+                      {f.extra?.metadata?.cwe && (
+                        <p>
+                          <strong>CWE:</strong> {f.extra.metadata.cwe}
+                        </p>
+                      )}
+
+                      {f.extra?.metadata?.owasp && (
+                        <p>
+                          <strong>OWASP:</strong> {f.extra.metadata.owasp}
+                        </p>
+                      )}
+
+                      <pre className="bg-slate-100 mt-2 p-2 rounded text-xs whitespace-pre-wrap">
+                        {f.extra?.lines}
+                      </pre>
                     </div>
-                    <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <Bot className="h-4 w-4" />
-                        LLM Code Quality
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Bugs:</span>
-                          <Badge variant="destructive">
-                            {getMetricValue(
-                              results.llm?.component?.measures,
-                              "bugs"
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Code Smells:</span>
-                          <Badge variant="secondary">
-                            {getMetricValue(
-                              results.llm?.component?.measures,
-                              "code_smells"
-                            )}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Complexity:</span>
-                          <Badge variant="outline">
-                            {getMetricValue(
-                              results.llm?.component?.measures,
-                              "complexity"
-                            )}
-                          </Badge>
-                        </div>
-                      </div>
+                  ))}
+                </div>
+
+                {/* ✅ HUMAN SEMGREP FINDINGS */}
+                <div className="p-4 border rounded-lg bg-white dark:bg-slate-900">
+                  <h3 className="font-semibold flex items-center gap-2 mb-3">
+                    <User className="h-4 w-4" />
+                    Human Code Findings
+                    <Badge>
+                      {results.segrep?.human?.findings?.length ||
+                        results.human?.findings?.length}
+                    </Badge>
+                  </h3>
+
+                  {(results.human?.findings || []).map((f, i) => (
+                    <div key={i} className="mb-4 p-3 border rounded-lg">
+                      <p>
+                        <strong>Rule:</strong> {f.check_id}
+                      </p>
+                      <p>
+                        <strong>Severity:</strong> {f.extra?.severity}
+                      </p>
+                      <p>
+                        <strong>Message:</strong> {f.extra?.message}
+                      </p>
+                      <p>
+                        <strong>Location:</strong> Line {f.start?.line}, Col{" "}
+                        {f.start?.col}
+                      </p>
+
+                      {f.extra?.metadata?.cwe && (
+                        <p>
+                          <strong>CWE:</strong> {f.extra.metadata.cwe}
+                        </p>
+                      )}
+
+                      {f.extra?.metadata?.owasp && (
+                        <p>
+                          <strong>OWASP:</strong> {f.extra.metadata.owasp}
+                        </p>
+                      )}
+
+                      <pre className="bg-slate-100 mt-2 p-2 rounded text-xs whitespace-pre-wrap">
+                        {f.extra?.lines}
+                      </pre>
                     </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
-
         {/* Info Cards */}
         <div className="grid md:grid-cols-3 gap-4">
           <Card>
