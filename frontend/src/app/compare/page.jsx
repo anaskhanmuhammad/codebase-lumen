@@ -32,31 +32,49 @@ export default function Compare() {
       setError(null);
       setResults(null);
 
-      const [sonar, semgrep] = await Promise.all([
-        analyzeBandit(humanCode, llmCode),
+      // Run analyses in parallel
+      const [semgrep, sonar] = await Promise.allSettled([
         analyzeSemgrep(humanCode, llmCode),
-        // analyzeCode(humanCode, llmCode),
+        analyzeCode(humanCode, llmCode),
       ]);
 
-      if (!sonar.success || !semgrep.success) {
-        throw new Error("One of the analyses failed.");
+      // Extract values and handle failures
+      const semgrepResult =
+        semgrep.status === "fulfilled"
+          ? semgrep.value
+          : { human: { findings: [] }, llm: { findings: [] }, success: false };
+      const sonarResult =
+        sonar.status === "fulfilled"
+          ? sonar.value
+          : {
+              human: { component: { measures: [] } },
+              llm: { component: { measures: [] } },
+              sessionId: null,
+              success: false,
+            };
+
+      if (!semgrepResult.success || !sonarResult.success) {
+        setError(
+          "One or more analyses failed. Partial results may be displayed."
+        );
       }
 
+      // Combine results for the UI
       setResults({
-        sessionId: sonar.sessionId,
+        sessionId: sonarResult.sessionId,
         human: {
-          ...sonar.human,
-          measures: sonar.human.component?.measures,
-          findings: semgrep.human.findings,
+          ...sonarResult.human,
+          measures: sonarResult.human.component?.measures || [],
+          findings: semgrepResult.human.findings || [],
         },
         llm: {
-          ...sonar.llm,
-          measures: sonar.llm.component?.measures,
-          findings: semgrep.llm.findings,
+          ...sonarResult.llm,
+          measures: sonarResult.llm.component?.measures || [],
+          findings: semgrepResult.llm.findings || [],
         },
       });
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Unexpected error during analysis");
     } finally {
       setIsAnalyzing(false);
     }

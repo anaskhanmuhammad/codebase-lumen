@@ -7,13 +7,13 @@ import BanditResults from "./BanditResults";
 export default function ResultsWrapper({ results }) {
   return (
     <div className="space-y-6">
-      {/* <SonarResults
+      <SonarResults
         sessionId={results.sessionId}
         human={results.human}
         llm={results.llm}
-      /> */}
+      />
 
-      <BanditResults results={results} />
+      {/* <BanditResults results={results} /> */}
       <SemgrepResults human={results.human} llm={results.llm} />
     </div>
   );
