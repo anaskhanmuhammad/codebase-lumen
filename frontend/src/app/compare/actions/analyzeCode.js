@@ -16,25 +16,27 @@ const TEMP_DIR = path.join(process.cwd(), "temp_analysis");
 
 export async function analyzeCode(humanCode, llmCode) {
   try {
-    // Create temp dir
     await fs.mkdir(TEMP_DIR, { recursive: true });
-
     const sessionId = uuidv4();
-
     console.log("Starting analysis for session:", sessionId);
 
-    // Analyze both
     const humanResult = await analyzeSingleCode(
       humanCode,
       `human-${sessionId}`
     );
     const llmResult = await analyzeSingleCode(llmCode, `llm-${sessionId}`);
 
+    // Normalize for UI
+    const normalize = (res) => ({
+      measures: res.component?.measures || [],
+      issues: res.issues || [], // You can extend to fetch security hotspots if needed
+    });
+
     return {
       success: true,
       sessionId,
-      human: humanResult,
-      llm: llmResult,
+      human: normalize(humanResult),
+      llm: normalize(llmResult),
     };
   } catch (error) {
     console.error("Error in analyzeCode:", error);
@@ -42,6 +44,8 @@ export async function analyzeCode(humanCode, llmCode) {
       success: false,
       error: error.message,
       details: error.response?.data || null,
+      human: { measures: [], issues: [] },
+      llm: { measures: [], issues: [] },
     };
   }
 }
@@ -53,7 +57,6 @@ async function analyzeSingleCode(code, projectKey) {
   const filePath = path.join(projectDir, "code.js");
   await fs.writeFile(filePath, code, "utf-8");
 
-  // sonar-project.properties file
   const sonarProps = `sonar.projectKey=${projectKey}
 sonar.projectName=${projectKey}
 sonar.sources=.
@@ -67,28 +70,20 @@ sonar.sourceEncoding=UTF-8
   console.log(`Running SonarQube analysis for ${projectKey}...`);
   console.log(`Project directory: ${projectDir}`);
 
-  // Convert Windows path to WSL path
   let wslPath = projectDir.replace(/\\/g, "/");
   if (wslPath.match(/^[A-Za-z]:/)) {
     const driveLetter = wslPath[0].toLowerCase();
     wslPath = `/mnt/${driveLetter}${wslPath.substring(2)}`;
   }
 
-  console.log(`WSL path: ${wslPath}`);
-
-  // Run Docker command through WSL
   const command = `wsl -e docker run --rm --network=host -v "${wslPath}:/usr/src" sonarsource/sonar-scanner-cli -Dsonar.host.url=${SONARQUBE_URL} -Dsonar.login=${SONARQUBE_TOKEN}`;
-
-  console.log(`Executing: ${command}`);
 
   try {
     const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+      maxBuffer: 1024 * 1024 * 10,
     });
     console.log(`Scanner output for ${projectKey}:`, stdout);
-    if (stderr && !stderr.includes("Pulling")) {
-      console.error(`Scanner stderr:`, stderr);
-    }
+    if (stderr && !stderr.includes("Pulling")) console.error(stderr);
   } catch (execError) {
     console.error(`Scanner failed for ${projectKey}:`, execError);
     throw new Error(
@@ -96,19 +91,14 @@ sonar.sourceEncoding=UTF-8
     );
   }
 
-  // Wait for analysis to complete and measures to be available
-  const maxRetries = 30; // Increased retries
-  const retryDelay = 3000; // 3 seconds between retries
-
-  console.log(`Waiting for analysis results for ${projectKey}...`);
-
+  // Wait for measures
+  const maxRetries = 30;
+  const retryDelay = 3000;
   const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
 
   for (let i = 0; i < maxRetries; i++) {
     await new Promise((r) => setTimeout(r, retryDelay));
-
     try {
-      // Check if project exists
       const projectCheck = await axios.get(
         `${SONARQUBE_URL}/api/projects/search`,
         {
@@ -118,9 +108,6 @@ sonar.sourceEncoding=UTF-8
       );
 
       if (projectCheck.data.components?.length > 0) {
-        console.log(`Project ${projectKey} found, checking for measures...`);
-
-        // Fetch measures
         const response = await axios.get(
           `${SONARQUBE_URL}/api/measures/component`,
           {
@@ -133,41 +120,14 @@ sonar.sourceEncoding=UTF-8
           }
         );
 
-        // Check if measures are actually populated
         if (response.data.component?.measures?.length > 0) {
-          console.log(
-            `Successfully retrieved ${response.data.component.measures.length} measures for ${projectKey}`
-          );
-          console.log("Measures:", response.data.component.measures);
           return response.data;
-        } else {
-          console.log(
-            `Retry ${
-              i + 1
-            }/${maxRetries}: Measures not ready yet (empty array)...`
-          );
         }
-      } else {
-        console.log(`Retry ${i + 1}/${maxRetries}: Project not found yet...`);
       }
     } catch (error) {
-      if (error.response?.status === 404 && i < maxRetries - 1) {
-        console.log(`Retry ${i + 1}/${maxRetries}: 404 error, retrying...`);
-        continue;
-      }
-      if (i === maxRetries - 1) {
-        throw error;
-      }
-      console.log(
-        `Retry ${i + 1}/${maxRetries}: Error occurred, retrying...`,
-        error.message
-      );
+      if (i === maxRetries - 1) throw error;
     }
   }
 
-  throw new Error(
-    `Analysis for ${projectKey} did not complete with measures after ${
-      (maxRetries * retryDelay) / 1000
-    } seconds. The project may exist but measures are not available.`
-  );
+  throw new Error(`Analysis for ${projectKey} did not produce measures.`);
 }

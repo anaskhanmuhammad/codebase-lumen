@@ -1,20 +1,36 @@
 "use client";
 
-import SonarResults from "./SonarResults";
-import SemgrepResults from "./SemgrepResults";
 import BanditResults from "./BanditResults";
+import SemgrepResults from "./SemgrepResults";
+import SonarResults from "./SonarResults";
 
 export default function ResultsWrapper({ results }) {
+  if (!results) return null;
+
   return (
     <div className="space-y-6">
-      <SonarResults
-        sessionId={results.sessionId}
-        human={results.human}
-        llm={results.llm}
-      />
+      {results.bandit && (
+        <BanditResults
+          human={results.bandit.human}
+          llm={results.bandit.llm}
+          sessionId={results.bandit.sessionId}
+        />
+      )}
 
-      {/* <BanditResults results={results} /> */}
-      <SemgrepResults human={results.human} llm={results.llm} />
+      {results.semgrep && (
+        <SemgrepResults
+          human={results.semgrep.human}
+          llm={results.semgrep.llm}
+        />
+      )}
+
+      {results.sonar && (
+        <SonarResults
+          sessionId={results.sonar.sessionId}
+          human={results.sonar.human}
+          llm={results.sonar.llm}
+        />
+      )}
     </div>
   );
 }
