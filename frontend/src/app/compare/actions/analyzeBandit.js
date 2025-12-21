@@ -6,6 +6,7 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { toDockerPath, getDockerCommand } from "../utils/platformPaths.js";
 
 const execAsync = promisify(exec);
 
@@ -71,27 +72,19 @@ async function analyzeSingleCodeWithBandit(code, identifier) {
   console.log(`Running Bandit analysis for ${identifier}...`);
   console.log(`Project directory: ${projectDir}`);
 
-  // Convert Windows path to WSL path if needed
-  let wslFilePath = filePath.replace(/\\/g, "/");
-  let wslOutputPath = outputPath.replace(/\\/g, "/");
+  // Convert to Docker-compatible path (works on Ubuntu, WSL, and Docker Desktop)
+  const dockerProjectPath = toDockerPath(projectDir);
+  const dockerCmd = getDockerCommand();
 
-  if (wslFilePath.match(/^[A-Za-z]:/)) {
-    const driveLetter = wslFilePath[0].toLowerCase();
-    wslFilePath = `/mnt/${driveLetter}${wslFilePath.substring(2)}`;
-    wslOutputPath = `/mnt/${driveLetter}${wslOutputPath.substring(2)}`;
-  }
-
-  console.log(`WSL file path: ${wslFilePath}`);
-  console.log(`WSL output path: ${wslOutputPath}`);
+  console.log(`Docker path: ${dockerProjectPath}`);
+  console.log(`Docker command: ${dockerCmd}`);
 
   // Run Bandit via Docker
   // -f json: Output format as JSON
   // -o: Output file path
   // -r: Recursive (for directories)
   // -ll: Only show issues of level LOW or higher
-  const command = `wsl -e docker run --rm -v "${path.dirname(
-    wslFilePath
-  )}:/code" cytopia/bandit -f json -o /code/bandit-report.json /code/${path.basename(
+  const command = `${dockerCmd} run --rm -v "${dockerProjectPath}:/code" cytopia/bandit -f json -o /code/bandit-report.json /code/${path.basename(
     filePath
   )}`;
 
@@ -200,9 +193,9 @@ function transformBanditResults(banditResults, identifier) {
     filename: issue.filename,
     cwe: issue.issue_cwe
       ? {
-          id: issue.issue_cwe.id,
-          link: issue.issue_cwe.link,
-        }
+        id: issue.issue_cwe.id,
+        link: issue.issue_cwe.link,
+      }
       : null,
     more_info: issue.more_info,
   }));
