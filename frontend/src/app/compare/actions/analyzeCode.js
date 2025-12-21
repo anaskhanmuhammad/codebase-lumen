@@ -76,13 +76,16 @@ async function analyzeSingleCode(code, projectKey) {
   console.log(`Running SonarQube analysis for ${projectKey}...`);
   console.log(`Project directory: ${projectDir}`);
 
-  // Configure cache to be in project root .cache folder
-  const cachePath = path.resolve(process.cwd(), "../.cache");
+  // Configure cache to be in project root .cache/sonarqube folder
+  const cachePath = path.resolve(process.cwd(), "../.cache/sonarqube");
   await fs.mkdir(cachePath, { recursive: true });
   process.env.SONAR_USER_HOME = cachePath;
 
   // Enforce 2GB memory limit
   process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
+
+  // Capture the task ID from scanner output for status checking
+  let taskId = null;
 
   // Use NPM sonarqube-scanner
   await new Promise((resolve, reject) => {
@@ -99,52 +102,82 @@ async function analyzeSingleCode(code, projectKey) {
           "sonar.sourceEncoding": "UTF-8",
         },
       },
-      (err) => {
+      (err, result) => {
         if (err) {
           reject(err);
         } else {
+          // Try to extract task ID from result if available
+          taskId = result?.ceTaskId;
           resolve();
         }
       }
     );
   });
 
-  // Wait for measures
-  const maxRetries = 30;
-  const retryDelay = 3000;
   const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
+  const headers = { Authorization: `Basic ${auth}` };
+
+  // If we have a task ID, poll the task status API (faster)
+  if (taskId) {
+    console.log(`Waiting for task ${taskId} to complete...`);
+    const maxTaskRetries = 60;
+    let pollInterval = 500; // Start with 500ms, increase over time
+
+    for (let i = 0; i < maxTaskRetries; i++) {
+      try {
+        const taskResponse = await axios.get(
+          `${SONARQUBE_URL}/api/ce/task`,
+          { params: { id: taskId }, headers }
+        );
+
+        const status = taskResponse.data.task?.status;
+        console.log(`Task status: ${status}`);
+
+        if (status === "SUCCESS") {
+          break;
+        } else if (status === "FAILED" || status === "CANCELED") {
+          throw new Error(`SonarQube analysis ${status.toLowerCase()}`);
+        }
+      } catch (error) {
+        if (error.message.includes("analysis")) throw error;
+        // API not ready yet, continue polling
+      }
+
+      await new Promise((r) => setTimeout(r, pollInterval));
+      // Adaptive polling: increase interval gradually (max 2s)
+      pollInterval = Math.min(pollInterval + 200, 2000);
+    }
+  }
+
+  // Fetch measures with immediate first check and adaptive polling
+  const maxRetries = 20;
+  let retryDelay = 500; // Start fast
 
   for (let i = 0; i < maxRetries; i++) {
-    await new Promise((r) => setTimeout(r, retryDelay));
     try {
-      const projectCheck = await axios.get(
-        `${SONARQUBE_URL}/api/projects/search`,
+      const response = await axios.get(
+        `${SONARQUBE_URL}/api/measures/component`,
         {
-          params: { projects: projectKey },
-          headers: { Authorization: `Basic ${auth}` },
+          params: {
+            component: projectKey,
+            metricKeys:
+              "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage",
+          },
+          headers,
         }
       );
 
-      if (projectCheck.data.components?.length > 0) {
-        const response = await axios.get(
-          `${SONARQUBE_URL}/api/measures/component`,
-          {
-            params: {
-              component: projectKey,
-              metricKeys:
-                "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage",
-            },
-            headers: { Authorization: `Basic ${auth}` },
-          }
-        );
-
-        if (response.data.component?.measures?.length > 0) {
-          return response.data;
-        }
+      if (response.data.component?.measures?.length > 0) {
+        console.log(`Measures retrieved for ${projectKey}`);
+        return response.data;
       }
     } catch (error) {
       if (i === maxRetries - 1) throw error;
     }
+
+    await new Promise((r) => setTimeout(r, retryDelay));
+    // Adaptive: slow down over time (max 2s)
+    retryDelay = Math.min(retryDelay + 300, 2000);
   }
 
   throw new Error(`Analysis for ${projectKey} did not produce measures.`);

@@ -90,7 +90,7 @@ async function analyzeSingleCodeSemgrep(code, projectKey, language) {
   console.log(`Docker path: ${dockerPath}`);
   console.log(`Docker command: ${dockerCmd}`);
 
-  // Semgrep Docker command
+  // Semgrep Docker command - auto config covers all languages
   const command = `${dockerCmd} run --rm -v "${dockerPath}:/src" semgrep/semgrep semgrep --config=auto --json --no-git-ignore /src/code.${language}`;
   console.log(`Executing: ${command}\n`);
 
