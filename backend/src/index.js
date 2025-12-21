@@ -22,3 +22,12 @@ app.get("/health", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server listening at http://localhost:${PORT}`);
 });
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error("Unhandled Error:", err.stack);
+  res.status(500).json({
+    status: "error",
+    message: "Internal Server Error",
+  });
+});
