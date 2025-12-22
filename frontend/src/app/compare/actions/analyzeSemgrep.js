@@ -5,6 +5,7 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { toDockerPath, getDockerCommand } from "../utils/platformPaths.js";
 
 const execAsync = promisify(exec);
 const TEMP_DIR = path.join(process.cwd(), "temp_semgrep");
@@ -82,17 +83,15 @@ async function analyzeSingleCodeSemgrep(code, projectKey, language) {
   console.log(`\n🔎 Running Semgrep analysis for ${projectKey}...`);
   console.log(`Project directory: ${projectDir}`);
 
-  // Convert Windows path to WSL-compatible
-  let wslPath = projectDir.replace(/\\/g, "/");
-  if (wslPath.match(/^[A-Za-z]:/)) {
-    const driveLetter = wslPath[0].toLowerCase();
-    wslPath = `/mnt/${driveLetter}${wslPath.substring(2)}`;
-  }
+  // Convert to Docker-compatible path (works on Ubuntu, WSL, and Docker Desktop)
+  const dockerPath = toDockerPath(projectDir);
+  const dockerCmd = getDockerCommand();
 
-  console.log(`WSL path: ${wslPath}`);
+  console.log(`Docker path: ${dockerPath}`);
+  console.log(`Docker command: ${dockerCmd}`);
 
-  // Semgrep Docker command
-  const command = `wsl -e docker run --rm -v "${wslPath}:/src" semgrep/semgrep semgrep --config=auto --json --no-git-ignore /src/code.${language}`;
+  // Semgrep Docker command - auto config covers all languages
+  const command = `${dockerCmd} run --rm -v "${dockerPath}:/src" semgrep/semgrep semgrep --config=auto --json --no-git-ignore /src/code.${language}`;
   console.log(`Executing: ${command}\n`);
 
   try {

@@ -5,19 +5,22 @@ import fs from "fs/promises";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import scanner from "sonarqube-scanner";
 
 const SONARQUBE_URL = process.env.SONARQUBE_URL || "http://localhost:9000";
-const SONARQUBE_TOKEN = process.env.SONARQUBE_TOKEN || "your_token_here";
+const SONARQUBE_TOKEN = process.env.SONARQUBE_TOKEN;
+
+if (!SONARQUBE_TOKEN) {
+  console.warn("WARNING: SONARQUBE_TOKEN is not set. Analysis may fail.");
+}
+
 const TEMP_DIR = path.join(process.cwd(), "temp_analysis");
 
 export async function analyzeCode(humanCode, llmCode) {
+  let sessionId;
   try {
     await fs.mkdir(TEMP_DIR, { recursive: true });
-    const sessionId = uuidv4();
+    sessionId = uuidv4();
     console.log("Starting analysis for session:", sessionId);
 
     const humanResult = await analyzeSingleCode(
@@ -47,6 +50,19 @@ export async function analyzeCode(humanCode, llmCode) {
       human: { measures: [], issues: [] },
       llm: { measures: [], issues: [] },
     };
+  } finally {
+    // Cleanup temporary files
+    if (sessionId) {
+      const clean = async (dir) => {
+        try {
+          await fs.rm(dir, { recursive: true, force: true });
+        } catch (e) {
+          console.error(`Failed to cleanup ${dir}:`, e);
+        }
+      };
+      await clean(path.join(TEMP_DIR, `human-${sessionId}`));
+      await clean(path.join(TEMP_DIR, `llm-${sessionId}`));
+    }
   }
 }
 
@@ -57,76 +73,111 @@ async function analyzeSingleCode(code, projectKey) {
   const filePath = path.join(projectDir, "code.js");
   await fs.writeFile(filePath, code, "utf-8");
 
-  const sonarProps = `sonar.projectKey=${projectKey}
-sonar.projectName=${projectKey}
-sonar.sources=.
-sonar.sourceEncoding=UTF-8
-`;
-  await fs.writeFile(
-    path.join(projectDir, "sonar-project.properties"),
-    sonarProps
-  );
-
   console.log(`Running SonarQube analysis for ${projectKey}...`);
   console.log(`Project directory: ${projectDir}`);
 
-  let wslPath = projectDir.replace(/\\/g, "/");
-  if (wslPath.match(/^[A-Za-z]:/)) {
-    const driveLetter = wslPath[0].toLowerCase();
-    wslPath = `/mnt/${driveLetter}${wslPath.substring(2)}`;
-  }
+  // Configure cache to be in project root .cache/sonarqube folder
+  const cachePath = path.resolve(process.cwd(), "../.cache/sonarqube");
+  await fs.mkdir(cachePath, { recursive: true });
+  process.env.SONAR_USER_HOME = cachePath;
 
-  const command = `wsl -e docker run --rm --network=host -v "${wslPath}:/usr/src" sonarsource/sonar-scanner-cli -Dsonar.host.url=${SONARQUBE_URL} -Dsonar.login=${SONARQUBE_TOKEN}`;
+  // Enforce 2GB memory limit
+  process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
 
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 1024 * 1024 * 10,
-    });
-    console.log(`Scanner output for ${projectKey}:`, stdout);
-    if (stderr && !stderr.includes("Pulling")) console.error(stderr);
-  } catch (execError) {
-    console.error(`Scanner failed for ${projectKey}:`, execError);
-    throw new Error(
-      `SonarQube scanner failed: ${execError.stderr || execError.message}`
+  // Capture the task ID from scanner output for status checking
+  let taskId = null;
+
+  // Use NPM sonarqube-scanner
+  await new Promise((resolve, reject) => {
+    scanner(
+      {
+        serverUrl: SONARQUBE_URL,
+        token: SONARQUBE_TOKEN,
+        options: {
+          "sonar.projectKey": projectKey,
+          "sonar.projectName": projectKey,
+          "sonar.projectBaseDir": projectDir,
+          "sonar.sources": "code.js",
+          "sonar.scm.disabled": "true",
+          "sonar.sourceEncoding": "UTF-8",
+        },
+      },
+      (err, result) => {
+        if (err) {
+          reject(err);
+        } else {
+          // Try to extract task ID from result if available
+          taskId = result?.ceTaskId;
+          resolve();
+        }
+      }
     );
+  });
+
+  const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
+  const headers = { Authorization: `Basic ${auth}` };
+
+  // If we have a task ID, poll the task status API (faster)
+  if (taskId) {
+    console.log(`Waiting for task ${taskId} to complete...`);
+    const maxTaskRetries = 60;
+    let pollInterval = 500; // Start with 500ms, increase over time
+
+    for (let i = 0; i < maxTaskRetries; i++) {
+      try {
+        const taskResponse = await axios.get(
+          `${SONARQUBE_URL}/api/ce/task`,
+          { params: { id: taskId }, headers }
+        );
+
+        const status = taskResponse.data.task?.status;
+        console.log(`Task status: ${status}`);
+
+        if (status === "SUCCESS") {
+          break;
+        } else if (status === "FAILED" || status === "CANCELED") {
+          throw new Error(`SonarQube analysis ${status.toLowerCase()}`);
+        }
+      } catch (error) {
+        if (error.message.includes("analysis")) throw error;
+        // API not ready yet, continue polling
+      }
+
+      await new Promise((r) => setTimeout(r, pollInterval));
+      // Adaptive polling: increase interval gradually (max 2s)
+      pollInterval = Math.min(pollInterval + 200, 2000);
+    }
   }
 
-  // Wait for measures
-  const maxRetries = 30;
-  const retryDelay = 3000;
-  const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
+  // Fetch measures with immediate first check and adaptive polling
+  const maxRetries = 20;
+  let retryDelay = 500; // Start fast
 
   for (let i = 0; i < maxRetries; i++) {
-    await new Promise((r) => setTimeout(r, retryDelay));
     try {
-      const projectCheck = await axios.get(
-        `${SONARQUBE_URL}/api/projects/search`,
+      const response = await axios.get(
+        `${SONARQUBE_URL}/api/measures/component`,
         {
-          params: { projects: projectKey },
-          headers: { Authorization: `Basic ${auth}` },
+          params: {
+            component: projectKey,
+            metricKeys:
+              "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage",
+          },
+          headers,
         }
       );
 
-      if (projectCheck.data.components?.length > 0) {
-        const response = await axios.get(
-          `${SONARQUBE_URL}/api/measures/component`,
-          {
-            params: {
-              component: projectKey,
-              metricKeys:
-                "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage",
-            },
-            headers: { Authorization: `Basic ${auth}` },
-          }
-        );
-
-        if (response.data.component?.measures?.length > 0) {
-          return response.data;
-        }
+      if (response.data.component?.measures?.length > 0) {
+        console.log(`Measures retrieved for ${projectKey}`);
+        return response.data;
       }
     } catch (error) {
       if (i === maxRetries - 1) throw error;
     }
+
+    await new Promise((r) => setTimeout(r, retryDelay));
+    // Adaptive: slow down over time (max 2s)
+    retryDelay = Math.min(retryDelay + 300, 2000);
   }
 
   throw new Error(`Analysis for ${projectKey} did not produce measures.`);
