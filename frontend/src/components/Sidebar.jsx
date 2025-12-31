@@ -21,6 +21,8 @@ import {
   BarChart,
   Settings,
   LogOut,
+  Search,
+  SearchCode,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -84,6 +86,13 @@ export default function AppSidebar() {
                   <Link href="/compare">
                     <Settings className="mr-2 h-4 w-4" />
                     Compare
+                  </Link>
+                </SidebarMenuButton>
+
+                <SidebarMenuButton asChild>
+                  <Link href="/code-search">
+                    <SearchCode className="mr-2 h-4 w-4" />
+                    Code-search
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

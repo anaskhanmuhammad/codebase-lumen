@@ -82,7 +82,7 @@ async function analyzeSingleCode(code, projectKey) {
   process.env.SONAR_USER_HOME = cachePath;
 
   // Enforce 2GB memory limit
-  process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
+  process.env.SONAR_SCANNER_OPTS = "-Xmx8192m";
 
   // Capture the task ID from scanner output for status checking
   let taskId = null;

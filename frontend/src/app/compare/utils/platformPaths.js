@@ -79,7 +79,7 @@ export function getDockerCommand() {
     // On native Windows (not WSL), we need to use WSL to run Docker
     // Note: This assumes Docker is set up to work with WSL
     if (platform === "windows") {
-        return "wsl -e docker";
+        return "docker";
     }
 
     // On both WSL and native Linux, use docker directly
