@@ -12,6 +12,7 @@ import Header from "./_components/Header";
 import { analyzeBandit } from "./actions/analyzeBandit";
 import { analyzeSemgrep } from "./actions/analyzeSemgrep";
 import { analyzeCode } from "./actions/analyzeCode";
+import { analyzeAiServer } from "./actions/analyzeAiServer";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
@@ -27,6 +28,7 @@ export default function Compare() {
     bandit: true,
     semgrep: false,
     sonar: false,
+    aiServer: false,
   });
 
   const handleToggleAnalysis = (key, checked) => {
@@ -55,6 +57,8 @@ export default function Compare() {
         analyzers.push({ name: "semgrep", fn: analyzeSemgrep });
       if (selectedAnalyses.sonar)
         analyzers.push({ name: "sonar", fn: analyzeCode });
+      if (selectedAnalyses.aiServer)
+        analyzers.push({ name: "aiServer", fn: analyzeAiServer });
 
       // Run selected analyses in parallel
       const resultsArray = await Promise.allSettled(
@@ -90,6 +94,8 @@ export default function Compare() {
         semgrep: selectedAnalyses.semgrep ? combinedResults.semgrep : null,
 
         sonar: selectedAnalyses.sonar ? combinedResults.sonar : null,
+
+        aiServer: selectedAnalyses.aiServer ? combinedResults.aiServer : null,
       };
 
       setResults(unifiedResults);
@@ -105,7 +111,7 @@ export default function Compare() {
     setLlmCode("");
     setResults(null);
     setError(null);
-    setSelectedAnalyses({ bandit: true, semgrep: false, sonar: false });
+    setSelectedAnalyses({ bandit: true, semgrep: false, sonar: false, aiServer: false });
   };
 
   return (
@@ -154,7 +160,7 @@ export default function Compare() {
         <div className="mt-6">
           <h4 className="font-semibold mb-2">Select Analyses:</h4>
           <div className="flex flex-col md:flex-row gap-4">
-            {["bandit", "semgrep", "sonar"].map((key) => (
+            {["bandit", "semgrep", "sonar", "aiServer"].map((key) => (
               <Label
                 key={key}
                 htmlFor={key}
