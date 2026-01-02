@@ -3,6 +3,7 @@
 import BanditResults from "./BanditResults";
 import SemgrepResults from "./SemgrepResults";
 import SonarResults from "./SonarResults";
+import AiServerResults from "./AiServerResults";
 
 export default function ResultsWrapper({ results }) {
   if (!results) return null;
@@ -29,6 +30,13 @@ export default function ResultsWrapper({ results }) {
           sessionId={results.sonar.sessionId}
           human={results.sonar.human}
           llm={results.sonar.llm}
+        />
+      )}
+
+      {results.aiServer && (
+        <AiServerResults
+          human={results.aiServer.human}
+          llm={results.aiServer.llm}
         />
       )}
     </div>
