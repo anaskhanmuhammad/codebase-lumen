@@ -87,10 +87,20 @@ export default function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
 
+                {/* Code Search */}
+
                 <SidebarMenuButton asChild>
                   <Link href="/code-search">
                     <SearchCode className="mr-2 h-4 w-4" />
                     Code-search
+                  </Link>
+                </SidebarMenuButton>
+
+                {/* leaderboard */}
+                    <SidebarMenuButton asChild>
+                  <Link href="/llm-leaderboard">
+                    <SearchCode className="mr-2 h-4 w-4" />
+                    llm leaderboard
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

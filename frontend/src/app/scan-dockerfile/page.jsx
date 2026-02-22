@@ -270,36 +270,10 @@ CMD ["node", "server.js"]`
         {/* Results Section */}
         {results && (
           <div className="mt-8">
-            {/* Recommendation Alert */}
-            <Alert className={`mb-6 border-2 p-4 ${recommendation?.color}`}>
-              <div className="flex items-start gap-3">
-                {results.summary.critical > 0 && (
-                  <Flame className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                )}
-                {results.summary.high > 0 && !results.summary.critical && (
-                  <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                )}
-                {results.summary.critical === 0 &&
-                  results.summary.high === 0 &&
-                  results.summary.medium > 0 && (
-                    <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                  )}
-                {results.summary.total === 0 && (
-                  <CheckCircle2 className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                )}
-
-                <div>
-                  <h3 className="font-bold text-lg">
-                    {recommendation?.status}
-                  </h3>
-                  <p className="text-sm mt-1">{recommendation?.message}</p>
-                </div>
-              </div>
-            </Alert>
 
             {/* Violations List */}
             {results.violations.length > 0 ? (
-              <Tabs defaultValue="all" className="bg-white rounded-lg border-2">
+              <Tabs defaultValue="all" className=" rounded-lg border-2">
                 <TabsList className="grid w-full grid-cols-5 p-1 m-1">
                   <TabsTrigger value="all">
                     All ({results.summary.total})
@@ -325,21 +299,21 @@ CMD ["node", "server.js"]`
                       .map((violation, idx) => (
                         <div
                           key={idx}
-                          className={`border-l-4 p-4 rounded-lg bg-opacity-50 ${SEVERITY_LEVELS[violation.severity].color}`}
+                          className={`border-l-4 p-4 rounded-lg `}
                         >
                           <div className="flex items-start justify-between">
                             <div className="flex items-start gap-3 flex-1">
                               {getSeverityIcon(violation.severity)}
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <h4 className="font-bold text-gray-900">
+                                  <h4 className="font-bold ">
                                     {violation.ruleName}
                                   </h4>
                                   <Badge variant="outline" className="text-xs">
                                     {violation.severity.toUpperCase()}
                                   </Badge>
                                 </div>
-                                <p className="text-sm text-gray-700 mb-2">
+                                <p className="text-sm  mb-2">
                                   {violation.description}
                                 </p>
                                 <div className="bg-white bg-opacity-60 p-2 rounded text-sm font-mono text-gray-800 border border-gray-200 mb-2">
