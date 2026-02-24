@@ -1,4 +1,3 @@
-// app/actions/analyzeCode.js
 "use server";
 
 import fs from "fs/promises";
@@ -18,28 +17,40 @@ const TEMP_DIR = path.join(process.cwd(), "temp_analysis");
 
 export async function analyzeCode(humanCode, llmCode) {
   let sessionId;
+  let projectKey;
+
   try {
     await fs.mkdir(TEMP_DIR, { recursive: true });
     sessionId = uuidv4();
-    console.log("Starting analysis for session:", sessionId);
+    projectKey = `session-${sessionId}`;
+    const projectDir = path.join(TEMP_DIR, projectKey);
 
-    const humanResult = await analyzeSingleCode(
-      humanCode,
-      `human-${sessionId}`
-    );
-    const llmResult = await analyzeSingleCode(llmCode, `llm-${sessionId}`);
+    console.log("Starting batched analysis for session:", sessionId);
+    
+    // Setup project directory
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(path.join(projectDir, "human.js"), humanCode, "utf-8");
+    await fs.writeFile(path.join(projectDir, "llm.js"), llmCode, "utf-8");
+
+    // Run combined analysis
+    await runSonarAnalysis(projectDir, projectKey);
+
+    // Fetch results for each file
+    // Component key format in SonarQube is "projectKey:fileName"
+    const humanMetrics = await fetchFileMetrics(`${projectKey}:human.js`);
+    const llmMetrics = await fetchFileMetrics(`${projectKey}:llm.js`);
 
     // Normalize for UI
     const normalize = (res) => ({
       measures: res.component?.measures || [],
-      issues: res.issues || [], // You can extend to fetch security hotspots if needed
+      issues: res.issues || [], 
     });
 
     return {
       success: true,
       sessionId,
-      human: normalize(humanResult),
-      llm: normalize(llmResult),
+      human: normalize(humanMetrics),
+      llm: normalize(llmMetrics),
     };
   } catch (error) {
     console.error("Error in analyzeCode:", error);
@@ -51,35 +62,24 @@ export async function analyzeCode(humanCode, llmCode) {
       llm: { measures: [], issues: [] },
     };
   } finally {
-    // Cleanup temporary files
+    // Cleanup
     if (sessionId) {
-      const clean = async (dir) => {
-        try {
-          await fs.rm(dir, { recursive: true, force: true });
-        } catch (e) {
-          console.error(`Failed to cleanup ${dir}:`, e);
-        }
-      };
-      await clean(path.join(TEMP_DIR, `human-${sessionId}`));
-      await clean(path.join(TEMP_DIR, `llm-${sessionId}`));
+      try {
+        await fs.rm(path.join(TEMP_DIR, projectKey), { recursive: true, force: true });
+      } catch (e) {
+        console.error(`Failed to cleanup ${projectKey}:`, e);
+      }
     }
   }
 }
 
-async function analyzeSingleCode(code, projectKey) {
-  const projectDir = path.join(TEMP_DIR, projectKey);
-  await fs.mkdir(projectDir, { recursive: true });
-
-  const filePath = path.join(projectDir, "code.js");
-  await fs.writeFile(filePath, code, "utf-8");
-
-  console.log(`Running SonarQube analysis for ${projectKey}...`);
-  console.log(`Project directory: ${projectDir}`);
-
-  // Configure cache to be in project root .cache/sonarqube folder
+async function runSonarAnalysis(projectDir, projectKey) {
+  console.log(`Running SonarQube scanner for ${projectKey}...`);
+  
   const cachePath = path.resolve(process.cwd(), "../.cache/sonarqube");
   await fs.mkdir(cachePath, { recursive: true });
   process.env.SONAR_USER_HOME = cachePath;
+  process.env.SONAR_SCANNER_OPTS = "-Xmx2048m"; // Optimized to 2GB
 
   // Enforce 2GB memory limit
   process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
@@ -97,88 +97,87 @@ async function analyzeSingleCode(code, projectKey) {
           "sonar.projectKey": projectKey,
           "sonar.projectName": projectKey,
           "sonar.projectBaseDir": projectDir,
-          "sonar.sources": "code.js",
+          "sonar.sources": ".", // Scan all files in dir (human.js and llm.js)
           "sonar.scm.disabled": "true",
           "sonar.sourceEncoding": "UTF-8",
         },
       },
-      (err, result) => {
-        if (err) {
-          reject(err);
+      async (err, result) => {
+        if (err) return reject(err);
+
+        // Polling for task completion
+        const taskId = result?.ceTaskId;
+        if (taskId) {
+            try {
+                await waitForTask(taskId);
+                resolve();
+            } catch(e) {
+                reject(e);
+            }
         } else {
-          // Try to extract task ID from result if available
-          taskId = result?.ceTaskId;
-          resolve();
+            resolve();
         }
       }
     );
   });
+}
 
-  const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
-  const headers = { Authorization: `Basic ${auth}` };
-
-  // If we have a task ID, poll the task status API (faster)
-  if (taskId) {
+async function waitForTask(taskId) {
     console.log(`Waiting for task ${taskId} to complete...`);
-    const maxTaskRetries = 60;
-    let pollInterval = 500; // Start with 500ms, increase over time
+    const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
+    const headers = { Authorization: `Basic ${auth}` };
+    
+    // Adaptive polling
+    let pollInterval = 500;
+    const maxRetries = 60; // 30-60 seconds max
 
-    for (let i = 0; i < maxTaskRetries; i++) {
-      try {
-        const taskResponse = await axios.get(
-          `${SONARQUBE_URL}/api/ce/task`,
-          { params: { id: taskId }, headers }
-        );
+    for (let i = 0; i < maxRetries; i++) {
+        const { data } = await axios.get(`${SONARQUBE_URL}/api/ce/task`, { 
+            params: { id: taskId }, 
+            headers 
+        });
+        
+        const status = data.task?.status;
+        if (status === "SUCCESS") return;
+        if (status === "FAILED" || status === "CANCELED") throw new Error(`Analysis ${status}`);
 
-        const status = taskResponse.data.task?.status;
-        console.log(`Task status: ${status}`);
-
-        if (status === "SUCCESS") {
-          break;
-        } else if (status === "FAILED" || status === "CANCELED") {
-          throw new Error(`SonarQube analysis ${status.toLowerCase()}`);
-        }
-      } catch (error) {
-        if (error.message.includes("analysis")) throw error;
-        // API not ready yet, continue polling
-      }
-
-      await new Promise((r) => setTimeout(r, pollInterval));
-      // Adaptive polling: increase interval gradually (max 2s)
-      pollInterval = Math.min(pollInterval + 200, 2000);
+        await new Promise(r => setTimeout(r, pollInterval));
+        pollInterval = Math.min(pollInterval + 200, 2000);
     }
-  }
+    throw new Error("Analysis task timed out");
+}
 
-  // Fetch measures with immediate first check and adaptive polling
-  const maxRetries = 20;
-  let retryDelay = 500; // Start fast
+async function fetchFileMetrics(componentKey) {
+    const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
+    const headers = { Authorization: `Basic ${auth}` };
+    const metricKeys = "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage";
 
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await axios.get(
-        `${SONARQUBE_URL}/api/measures/component`,
-        {
-          params: {
-            component: projectKey,
-            metricKeys:
-              "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage",
-          },
-          headers,
+    // Retry logic for fetching measures (DB consistency delay)
+    let retryDelay = 500;
+    for (let i = 0; i < 20; i++) {
+        try {
+            // Get measures
+            const measuresResp = await axios.get(`${SONARQUBE_URL}/api/measures/component`, {
+                params: { component: componentKey, metricKeys },
+                headers
+            });
+
+            // Get issues
+            const issuesResp = await axios.get(`${SONARQUBE_URL}/api/issues/search`, {
+                params: { componentKeys: componentKey },
+                headers
+            });
+
+            return {
+                component: measuresResp.data.component,
+                issues: issuesResp.data.issues || []
+            };
+
+        } catch (error) {
+            if (i === 19) throw error; 
+            // 404 means component not ready yet in some versions, or DB delay
+            await new Promise(r => setTimeout(r, retryDelay));
+            retryDelay = Math.min(retryDelay + 300, 2000);
         }
-      );
-
-      if (response.data.component?.measures?.length > 0) {
-        console.log(`Measures retrieved for ${projectKey}`);
-        return response.data;
-      }
-    } catch (error) {
-      if (i === maxRetries - 1) throw error;
     }
-
-    await new Promise((r) => setTimeout(r, retryDelay));
-    // Adaptive: slow down over time (max 2s)
-    retryDelay = Math.min(retryDelay + 300, 2000);
-  }
-
-  throw new Error(`Analysis for ${projectKey} did not produce measures.`);
 }
