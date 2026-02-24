@@ -81,7 +81,14 @@ async function runSonarAnalysis(projectDir, projectKey) {
   process.env.SONAR_USER_HOME = cachePath;
   process.env.SONAR_SCANNER_OPTS = "-Xmx2048m"; // Optimized to 2GB
 
-  return new Promise((resolve, reject) => {
+  // Enforce 2GB memory limit
+  process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
+
+  // Capture the task ID from scanner output for status checking
+  let taskId = null;
+
+  // Use NPM sonarqube-scanner
+  await new Promise((resolve, reject) => {
     scanner(
       {
         serverUrl: SONARQUBE_URL,

@@ -18,9 +18,9 @@ import {
   ChevronRight,
   ChevronDown,
   Home,
-  BarChart,
   Settings,
-  LogOut,
+  SearchCode,
+  DockIcon,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -71,9 +71,9 @@ export default function AppSidebar() {
               {/* Analytics */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
-                  <Link href="/analytics">
-                    <BarChart className="mr-2 h-4 w-4" />
-                    Analytics
+                  <Link href="/scan-dockerfile">
+                    <DockIcon className="mr-2 h-4 w-4" />
+                    Scan Dockerfile
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -84,6 +84,23 @@ export default function AppSidebar() {
                   <Link href="/compare">
                     <Settings className="mr-2 h-4 w-4" />
                     Compare
+                  </Link>
+                </SidebarMenuButton>
+
+                {/* Code Search */}
+
+                <SidebarMenuButton asChild>
+                  <Link href="/code-search">
+                    <SearchCode className="mr-2 h-4 w-4" />
+                    Code-search
+                  </Link>
+                </SidebarMenuButton>
+
+                {/* leaderboard */}
+                    <SidebarMenuButton asChild>
+                  <Link href="/llm-leaderboard">
+                    <SearchCode className="mr-2 h-4 w-4" />
+                    llm leaderboard
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
