@@ -21,6 +21,7 @@ import {
   Settings,
   SearchCode,
   DockIcon,
+  FolderOpen,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -68,7 +69,17 @@ export default function AppSidebar() {
                 )}
               </SidebarMenuItem>
 
-              {/* Analytics */}
+              {/* Projects */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link href="/projects">
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    Projects
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Scan Dockerfile */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link href="/scan-dockerfile">

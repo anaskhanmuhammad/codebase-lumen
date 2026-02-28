@@ -19,4 +19,265 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   isActive    Boolean  @default(true)
+
+  apiKeys      UserApiKey[]
+  projects     Project[]
+  chatSessions ChatSession[]
 }
+
+model UserApiKey {
+  keyId            String    @id @default(cuid())
+  userId           String
+  name             String?
+  provider         String
+  encryptedKey     String
+  keyMetadata      Json?
+  isValidated      Boolean   @default(false)
+  lastValidationAt DateTime?
+  validationStatus String?
+  validationError  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [userId])
+}
+
+// ─────────────────────────────────────────────
+// STANDARDS & ANALYZERS
+// ─────────────────────────────────────────────
+
+model StandardPure {
+  standardId   String  @id @default(cuid())
+  standardName String
+  standardType String
+  title        String?
+  description  String?
+  reference    String?
+
+  analyzerRuleMappings AnalyzerRuleMapping[]
+}
+
+model Analyzer {
+  analyzerId   String  @id @default(cuid())
+  analyzerName String  @unique
+  description  String?
+  version      String?
+  isActive     Boolean @default(true)
+
+  analyzerRuleMappings AnalyzerRuleMapping[]
+  analyzerWeightages   AnalyzerWeightage[]
+}
+
+model AnalyzerRuleMapping {
+  mappingId    String   @id @default(cuid())
+  analyzerId   String
+  ruleId       String
+  standardName String
+  standardType String
+  confidence   Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  analyzer     Analyzer     @relation(fields: [analyzerId], references: [analyzerId])
+  standardPure StandardPure @relation(fields: [ruleId], references: [standardId])
+}
+
+model Language {
+  languageId   String @id @default(cuid())
+  languageName String @unique
+
+  analyzerWeightages AnalyzerWeightage[]
+  projectLanguages   ProjectLanguage[]
+  globalBenchmarks   GlobalBenchmark[]
+  comparisons        Comparison[]
+}
+
+model AnalyzerWeightage {
+  weightageId String   @id @default(cuid())
+  analyzerId  String
+  languageId  String
+  weightage   Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  analyzer Analyzer @relation(fields: [analyzerId], references: [analyzerId])
+  language Language @relation(fields: [languageId], references: [languageId])
+}
+
+// ─────────────────────────────────────────────
+// LLM
+// ─────────────────────────────────────────────
+
+model Llm {
+  llmId             String  @id @default(cuid())
+  llmName           String  @unique
+  provider          String
+  modelIdentifier   String
+  description       String?
+  isActive          Boolean @default(true)
+
+  globalBenchmarks GlobalBenchmark[]
+  comparisons      Comparison[]
+}
+
+// ─────────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────────
+
+model Project {
+  projectId    String   @id @default(cuid())
+  userId       String
+  projectName  String
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  topLanguage  String?
+
+  user             User              @relation(fields: [userId], references: [userId])
+  projectLanguages ProjectLanguage[]
+  comparisons      Comparison[]
+}
+
+model ProjectLanguage {
+  projectLanguageId String @id @default(cuid())
+  projectId         String
+  languageId        String
+  percentage        Float
+
+  project  Project  @relation(fields: [projectId], references: [projectId])
+  language Language @relation(fields: [languageId], references: [languageId])
+}
+
+// ─────────────────────────────────────────────
+// COMPARISONS & CODE SAMPLES
+// ─────────────────────────────────────────────
+
+model Comparison {
+  comparisonId     String    @id @default(cuid())
+  projectId        String
+  name             String?
+  type             String?
+  languageId       String?
+  promptText       String?
+  status           String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  completedAt      DateTime?
+  analyzerVersions Json?
+  llmId            String?
+
+  project      Project?      @relation(fields: [projectId], references: [projectId])
+  language     Language?     @relation(fields: [languageId], references: [languageId])
+  llm          Llm?          @relation(fields: [llmId], references: [llmId])
+  codeSamples  CodeSample[]
+  chatSessions ChatSession[]
+}
+
+model CodeSample {
+  codeSampleId   String    @id @default(cuid())
+  comparisonId   String
+  codeType       String    // e.g. "original", "generated"
+  llmId          String?
+  codeContent    String
+  source         String?
+  repositoryUrl  String?
+  isOriginal     Boolean   @default(false)
+  promptUsed     String?
+  generatedAt    DateTime?
+  modificationNote String?
+  createdAt      DateTime  @default(now())
+
+  comparison      Comparison       @relation(fields: [comparisonId], references: [comparisonId])
+  vulnerabilities Vulnerability[]
+  benchmarkScores BenchmarkScore[]
+}
+
+// ─────────────────────────────────────────────
+// VULNERABILITIES
+// ─────────────────────────────────────────────
+
+model Vulnerability {
+  vulnerabilityId              String   @id @default(cuid())
+  codeSampleId                 String
+  name                         String
+  description                  String?
+  filePath                     String?
+  lineNumber                   Int?
+  severityByEachAnalyzer       Json?
+  severity                     String?
+  severityScore                Float?
+  confidenceScoreByEachAnalyzer Json?
+  confidenceScore              Float?
+  detectedBy                   Json?
+  allStandardsViolated         Json?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  codeSample       CodeSample        @relation(fields: [codeSampleId], references: [codeSampleId])
+  chatConversations ChatConversation[]
+}
+
+// ─────────────────────────────────────────────
+// BENCHMARK SCORES
+// ─────────────────────────────────────────────
+
+model BenchmarkScore {
+  benchmarkId            String   @id @default(cuid())
+  codeSampleId           String
+  securityScore          Float?
+  qualityScore           Float?
+  overallBenchmarkIndex  Float?
+  isUpdateGlobal         Boolean  @default(false)
+  analyzerVersions       Json?
+  computationMetadata    Json?
+  createdAt              DateTime @default(now())
+
+  codeSample CodeSample @relation(fields: [codeSampleId], references: [codeSampleId])
+}
+
+model GlobalBenchmark {
+  globalBenchmarkId String   @id @default(cuid())
+  llmId             String
+  languageId        String
+  avgSecurityScore  Float?
+  avgQualityScore   Float?
+  avgOBI            Float?
+  totalComparisons  Int      @default(0)
+  lastUpdated       DateTime @updatedAt
+  severityDistribution Json?
+
+  llm      Llm      @relation(fields: [llmId], references: [llmId])
+  language Language @relation(fields: [languageId], references: [languageId])
+}
+
+// ─────────────────────────────────────────────
+// CHAT
+// ─────────────────────────────────────────────
+
+model ChatSession {
+  chatSessionId String   @id @default(cuid())
+  userId        String
+  comparisonId  String?
+  vulnerabilityId String?
+  startedAt     DateTime @default(now())
+  lastUpdated   DateTime @updatedAt
+
+  user          User               @relation(fields: [userId], references: [userId])
+  comparison    Comparison?        @relation(fields: [comparisonId], references: [comparisonId])
+  conversations ChatConversation[]
+}
+
+model ChatConversation {
+  messageId       String   @id @default(cuid())
+  chatSessionId   String
+  messageText     String
+  timestamp       DateTime @default(now())
+  vulnerabilityId String?
+  type            String?  // e.g. "user", "assistant"
+  generatedOutput String?
+  isHelpful       Boolean?
+
+  chatSession   ChatSession    @relation(fields: [chatSessionId], references: [chatSessionId])
+  vulnerability Vulnerability? @relation(fields: [vulnerabilityId], references: [vulnerabilityId])
+}
+
