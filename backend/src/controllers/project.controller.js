@@ -112,6 +112,43 @@ export const getProjectLanguages = async (req, res) => {
 };
 
 /**
+ * GET /projects/llms
+ * Returns active LLM models for dropdowns.
+ */
+export const getAvailableLlms = async (req, res) => {
+  try {
+    const llmsRaw = await prisma.llm.findMany({
+      where: { isActive: true },
+      select: {
+        llmId: true,
+        llmName: true,
+        provider: {
+          select: {
+            providerName: true,
+          },
+        },
+        modelIdentifier: true,
+        description: true,
+      },
+      orderBy: [{ provider: { providerName: "asc" } }, { llmName: "asc" }],
+    });
+
+    const llms = llmsRaw.map((llm) => ({
+      llmId: llm.llmId,
+      llmName: llm.llmName,
+      provider: llm.provider?.providerName || null,
+      modelIdentifier: llm.modelIdentifier,
+      description: llm.description,
+    }));
+
+    return res.json({ llms });
+  } catch (error) {
+    console.error("Error fetching available LLMs:", error);
+    return res.status(500).json({ error: "Failed to fetch LLMs" });
+  }
+};
+
+/**
  * POST /projects
  * Creates a new project for the authenticated user.
  * Body: { projectName, description? }

@@ -40,17 +40,11 @@ export async function analyzeCode(humanCode, llmCode) {
     const humanMetrics = await fetchFileMetrics(`${projectKey}:human.js`);
     const llmMetrics = await fetchFileMetrics(`${projectKey}:llm.js`);
 
-    // Normalize for UI
-    const normalize = (res) => ({
-      measures: res.component?.measures || [],
-      issues: res.issues || [], 
-    });
-
     return {
       success: true,
       sessionId,
-      human: normalize(humanMetrics),
-      llm: normalize(llmMetrics),
+      human: humanMetrics,
+      llm: llmMetrics,
     };
   } catch (error) {
     console.error("Error in analyzeCode:", error);
@@ -58,8 +52,8 @@ export async function analyzeCode(humanCode, llmCode) {
       success: false,
       error: error.message,
       details: error.response?.data || null,
-      human: { measures: [], issues: [] },
-      llm: { measures: [], issues: [] },
+      human: null,
+      llm: null,
     };
   } finally {
     // Cleanup
@@ -169,8 +163,8 @@ async function fetchFileMetrics(componentKey) {
             });
 
             return {
-                component: measuresResp.data.component,
-                issues: issuesResp.data.issues || []
+              measuresResponse: measuresResp.data,
+              issuesResponse: issuesResp.data,
             };
 
         } catch (error) {

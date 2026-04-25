@@ -26,39 +26,12 @@ export async function analyzeSemgrep(humanCode, llmCode, language = "js") {
       analyzeSingleCodeSemgrep(llmCode, `llm-${sessionId}`, language),
     ]);
 
-    // Aggregate metrics
-    const humanMetrics = calculateMetrics(humanResult);
-    const llmMetrics = calculateMetrics(llmResult);
-
     return {
       success: true,
       sessionId,
       timestamp: new Date().toISOString(),
-      human: {
-        raw: humanResult,
-        metrics: humanMetrics,
-        findings: humanResult.results || [],
-      },
-      llm: {
-        raw: llmResult,
-        metrics: llmMetrics,
-        findings: llmResult.results || [],
-      },
-      comparison: {
-        totalIssues: {
-          human: humanMetrics.totalIssues,
-          llm: llmMetrics.totalIssues,
-          difference: llmMetrics.totalIssues - humanMetrics.totalIssues,
-        },
-        bySeverity: {
-          human: humanMetrics.bySeverity,
-          llm: llmMetrics.bySeverity,
-        },
-        byCategory: {
-          human: humanMetrics.byCategory,
-          llm: llmMetrics.byCategory,
-        },
-      },
+      human: humanResult,
+      llm: llmResult,
     };
   } catch (error) {
     console.error("❌ Error in analyzeSemgrep:", error);

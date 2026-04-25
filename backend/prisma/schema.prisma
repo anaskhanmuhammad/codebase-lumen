@@ -31,11 +31,14 @@ model UserApiKey {
   name             String?
   provider         String
   encryptedKey     String
+  maskedKey        String?
   keyMetadata      Json?
+  isActive         Boolean   @default(true)
   isValidated      Boolean   @default(false)
-  lastValidationAt DateTime?
   validationStatus String?
   validationError  String?
+  lastValidationAt DateTime?
+  lastUsedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -108,16 +111,29 @@ model AnalyzerWeightage {
 // LLM
 // ─────────────────────────────────────────────
 
+model Provider {
+  providerId   String   @id @default(cuid())
+  providerName String   @unique
+  description  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  llms Llm[]
+}
+
 model Llm {
   llmId             String  @id @default(cuid())
   llmName           String  @unique
-  provider          String
+  providerId        String
   modelIdentifier   String
   description       String?
   isActive          Boolean @default(true)
 
+  provider         Provider         @relation(fields: [providerId], references: [providerId])
   globalBenchmarks GlobalBenchmark[]
   comparisons      Comparison[]
+  codeSamples      CodeSample[]
 }
 
 // ─────────────────────────────────────────────
@@ -187,9 +203,28 @@ model CodeSample {
   modificationNote String?
   createdAt      DateTime  @default(now())
 
-  comparison      Comparison       @relation(fields: [comparisonId], references: [comparisonId])
-  vulnerabilities Vulnerability[]
-  benchmarkScores BenchmarkScore[]
+  comparison       Comparison        @relation(fields: [comparisonId], references: [comparisonId])
+  llm              Llm?              @relation(fields: [llmId], references: [llmId])
+  vulnerabilities  Vulnerability[]
+  benchmarkScores  BenchmarkScore[]
+  analyzerResults  AnalyzerResult[]
+}
+
+// ─────────────────────────────────────────────
+// ANALYZER RESULTS
+// ─────────────────────────────────────────────
+
+model AnalyzerResult {
+  resultId       String   @id @default(cuid())
+  codeSampleId   String
+  analyzerType   String   // "semgrep", "bandit", "sonar", "aiServer"
+  rawOutput      Json     // Exact payload from analyzer
+  executedAt     DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  codeSample CodeSample @relation(fields: [codeSampleId], references: [codeSampleId], onDelete: Cascade)
+
+  @@unique([codeSampleId, analyzerType])
 }
 
 // ─────────────────────────────────────────────

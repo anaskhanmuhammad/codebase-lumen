@@ -1,26 +1,95 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Loader2, ArrowLeft, Plus, Trash2, GitCompareArrows } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, XCircle } from "lucide-react";
 
-import Header from "@/app/compare/_components/Header";
 import CodeInputCard from "@/app/compare/_components/CodeInputCard";
-import ResultsWrapper from "@/app/compare/_components/Results/ResultsWrapper";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import AnalyzerRawModal from "@/app/compare/_components/RawResults/AnalyzerRawModal";
 
 import { analyzeBandit } from "@/app/compare/actions/analyzeBandit";
 import { analyzeSemgrep } from "@/app/compare/actions/analyzeSemgrep";
 import { analyzeCode } from "@/app/compare/actions/analyzeCode";
 import { analyzeAiServer } from "@/app/compare/actions/analyzeAiServer";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import LLMSelector from "@/app/compare/_components/LLMSelector";
+import hljs from "highlight.js/lib/core";
+import python from "highlight.js/lib/languages/python";
+import javascript from "highlight.js/lib/languages/javascript";
+import typescript from "highlight.js/lib/languages/typescript";
+import java from "highlight.js/lib/languages/java";
+import cpp from "highlight.js/lib/languages/cpp";
+import csharp from "highlight.js/lib/languages/csharp";
+import go from "highlight.js/lib/languages/go";
+import rust from "highlight.js/lib/languages/rust";
+import ruby from "highlight.js/lib/languages/ruby";
+import php from "highlight.js/lib/languages/php";
+import kotlin from "highlight.js/lib/languages/kotlin";
+import swift from "highlight.js/lib/languages/swift";
+import sql from "highlight.js/lib/languages/sql";
+import bash from "highlight.js/lib/languages/bash";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("java", java);
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("csharp", csharp);
+hljs.registerLanguage("go", go);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("ruby", ruby);
+hljs.registerLanguage("php", php);
+hljs.registerLanguage("kotlin", kotlin);
+hljs.registerLanguage("swift", swift);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("bash", bash);
+
+const LANG_DISPLAY = {
+  python: "Python",
+  javascript: "JavaScript",
+  typescript: "TypeScript",
+  java: "Java",
+  cpp: "C++",
+  csharp: "C#",
+  go: "Go",
+  rust: "Rust",
+  ruby: "Ruby",
+  php: "PHP",
+  kotlin: "Kotlin",
+  swift: "Swift",
+  sql: "SQL",
+  bash: "Bash",
+};
+
+const SUPPORTED_LANGS = Object.keys(LANG_DISPLAY);
+
+function detectLanguage(code) {
+  const text = (code || "").trim();
+  if (!text) {
+    return { language: null, confidence: 0, display: "Not detected" };
+  }
+
+  try {
+    const result = hljs.highlightAuto(text, SUPPORTED_LANGS);
+    const language = result.language || null;
+    const confidence = result.relevance || 0;
+    return {
+      language,
+      confidence,
+      display: LANG_DISPLAY[language] || "Unknown",
+    };
+  } catch {
+    return { language: null, confidence: 0, display: "Unknown" };
+  }
+}
 
 export default function ComparisonPage() {
   const { getToken } = useAuth();
@@ -32,12 +101,27 @@ export default function ComparisonPage() {
   const [error, setError] = useState("");
 
   const [humanCode, setHumanCode] = useState("");
-  // Start with 1 LLM code field
   const [llmCodes, setLlmCodes] = useState([""]);
-  
+  const [llmNames, setLlmNames] = useState([""]);
+  const [llmCustomNames, setLlmCustomNames] = useState([""]);
+  const [llmGeneratedBaselines, setLlmGeneratedBaselines] = useState([null]);
+  const [llmGeneratedPrompts, setLlmGeneratedPrompts] = useState([null]);
+  const [availableLlms, setAvailableLlms] = useState([]);
+
+  const [promptText, setPromptText] = useState("");
+  const [selectedPromptTargets, setSelectedPromptTargets] = useState([]);
+  const [isGeneratingFromPrompt, setIsGeneratingFromPrompt] = useState(false);
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [results, setResults] = useState(null); // Array of result objects, one per LLM
-  
+  const [results, setResults] = useState(null);
+
+  // Raw payloads are stored code-wise: human, llm-0, llm-1, ...
+  const [rawAnalyzerResponses, setRawAnalyzerResponses] = useState({});
+  const [rawResultsModalState, setRawResultsModalState] = useState({
+    isOpen: false,
+    codeKey: null,
+  });
+
   const [selectedAnalyses, setSelectedAnalyses] = useState({
     bandit: true,
     semgrep: false,
@@ -59,19 +143,152 @@ export default function ComparisonPage() {
         }
         const data = await res.json();
         setComparison(data.comparison);
-        
-        // If type is LLM vs LLM, start with two LLMs and no Human code
-        if (data.comparison.type === "LLM vs LLM") {
-          setLlmCodes(["", ""]);
+
+        const isCompleted = (data.comparison?.status || "").toLowerCase() === "completed";
+
+        if (isCompleted) {
+          const completedRes = await fetch(
+            `${BACKEND_URL}/projects/${projectId}/comparisons/${comparisonId}/completed-data`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+
+          if (completedRes.ok) {
+            const completedData = await completedRes.json();
+
+            if (data.comparison.type === "Human vs LLM") {
+              setHumanCode(completedData.humanSample?.codeContent || "");
+
+              const llmSamples = completedData.llmSamples || [];
+              setLlmCodes(llmSamples.map((sample) => sample.codeContent || ""));
+              setLlmNames(llmSamples.map((sample) => sample.llm?.llmName || ""));
+              setLlmCustomNames(llmSamples.map(() => ""));
+              setLlmGeneratedBaselines(
+                llmSamples.map((sample) => (sample.isOriginal ? sample.codeContent || "" : null))
+              );
+              setLlmGeneratedPrompts(llmSamples.map((sample) => sample.promptUsed || null));
+            } else {
+              const llmSamples = completedData.llmSamples || [];
+              setLlmCodes(llmSamples.map((sample) => sample.codeContent || ""));
+              setLlmNames(llmSamples.map((sample) => sample.llm?.llmName || ""));
+              setLlmCustomNames(llmSamples.map(() => ""));
+              setLlmGeneratedBaselines(
+                llmSamples.map((sample) => (sample.isOriginal ? sample.codeContent || "" : null))
+              );
+              setLlmGeneratedPrompts(llmSamples.map((sample) => sample.promptUsed || null));
+            }
+
+            // Fetch analyzer results for all code samples
+            const allSamples = [
+              completedData.humanSample,
+              ...(completedData.llmSamples || []),
+            ].filter(Boolean);
+
+            const rawByCode = {};
+            const resultItems = [];
+
+            // Map samples to codeKeys
+            const codeKeyMap = {};
+            if (completedData.humanSample) {
+              codeKeyMap[completedData.humanSample.codeSampleId] = {
+                codeKey: "human",
+                label: "Human",
+              };
+            }
+            (completedData.llmSamples || []).forEach((sample, idx) => {
+              codeKeyMap[sample.codeSampleId] = {
+                codeKey: `llm-${idx}`,
+                label: sample.llm?.llmName || `LLM ${idx + 1}`,
+              };
+            });
+
+            // Fetch analyzer results for each code sample
+            await Promise.all(
+              allSamples.map(async (sample) => {
+                try {
+                  const analyzerRes = await fetch(
+                    `${BACKEND_URL}/projects/${projectId}/comparisons/${comparisonId}/code-samples/${sample.codeSampleId}/analyzer-results`,
+                    {
+                      headers: { Authorization: `Bearer ${token}` },
+                    }
+                  );
+
+                  if (analyzerRes.ok) {
+                    const analyzerData = await analyzerRes.json();
+                    const { codeKey, label } = codeKeyMap[sample.codeSampleId];
+
+                    // Transform results into analyzer payloads
+                    const analyzers = {
+                      bandit: null,
+                      semgrep: null,
+                      sonar: null,
+                      aiServer: null,
+                    };
+
+                    analyzerData.results.forEach((result) => {
+                      analyzers[result.analyzerType] = result.rawOutput;
+                    });
+
+                    rawByCode[codeKey] = {
+                      codeKey,
+                      label,
+                      analyzers,
+                    };
+
+                    resultItems.push({
+                      codeKey,
+                      label,
+                    });
+                  }
+                } catch (err) {
+                  console.warn(`Failed to fetch analyzer results for sample ${sample.codeSampleId}:`, err);
+                }
+              })
+            );
+
+            if (Object.keys(rawByCode).length > 0) {
+              setRawAnalyzerResponses(rawByCode);
+              setResults(resultItems);
+            }
+          }
         }
-      } catch (err) {
+
+        if (!isCompleted && data.comparison.type === "LLM vs LLM") {
+          setLlmCodes(["", ""]);
+          setLlmNames(["", ""]);
+          setLlmCustomNames(["", ""]);
+          setLlmGeneratedBaselines([null, null]);
+          setLlmGeneratedPrompts([null, null]);
+        }
+      } catch {
         setError("Network error. Please try again.");
       } finally {
         setLoading(false);
       }
     };
+
     if (projectId && comparisonId) fetchComparison();
   }, [projectId, comparisonId, getToken]);
+
+  useEffect(() => {
+    const fetchLlms = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/projects/llms`);
+        if (!res.ok) {
+          setAvailableLlms([]);
+          return;
+        }
+
+        const data = await res.json();
+        setAvailableLlms(Array.isArray(data.llms) ? data.llms : []);
+      } catch {
+        setAvailableLlms([]);
+      }
+    };
+
+    fetchLlms();
+  }, []);
 
   const handleToggleAnalysis = (key, checked) => {
     setSelectedAnalyses((prev) => ({
@@ -82,12 +299,33 @@ export default function ComparisonPage() {
 
   const addLlmField = () => {
     setLlmCodes([...llmCodes, ""]);
+    setLlmNames([...llmNames, ""]);
+    setLlmCustomNames([...llmCustomNames, ""]);
+    setLlmGeneratedBaselines([...llmGeneratedBaselines, null]);
+    setLlmGeneratedPrompts([...llmGeneratedPrompts, null]);
   };
 
   const removeLlmField = (index) => {
     const newCodes = [...llmCodes];
+    const newNames = [...llmNames];
+    const newCustomNames = [...llmCustomNames];
+    const newBaselines = [...llmGeneratedBaselines];
+    const newPrompts = [...llmGeneratedPrompts];
     newCodes.splice(index, 1);
+    newNames.splice(index, 1);
+    newCustomNames.splice(index, 1);
+    newBaselines.splice(index, 1);
+    newPrompts.splice(index, 1);
     setLlmCodes(newCodes);
+    setLlmNames(newNames);
+    setLlmCustomNames(newCustomNames);
+    setLlmGeneratedBaselines(newBaselines);
+    setLlmGeneratedPrompts(newPrompts);
+    setSelectedPromptTargets((prev) =>
+      prev
+        .filter((targetIndex) => targetIndex !== index)
+        .map((targetIndex) => (targetIndex > index ? targetIndex - 1 : targetIndex))
+    );
   };
 
   const updateLlmCode = (index, value) => {
@@ -96,16 +334,268 @@ export default function ComparisonPage() {
     setLlmCodes(newCodes);
   };
 
+  const updateLlmName = (index, name) => {
+    const newNames = [...llmNames];
+    newNames[index] = name;
+    setLlmNames(newNames);
+
+    const newBaselines = [...llmGeneratedBaselines];
+    const newPrompts = [...llmGeneratedPrompts];
+    newBaselines[index] = null;
+    newPrompts[index] = null;
+    setLlmGeneratedBaselines(newBaselines);
+    setLlmGeneratedPrompts(newPrompts);
+  };
+
+  const updateLlmCustomName = (index, customName) => {
+    const newCustomNames = [...llmCustomNames];
+    newCustomNames[index] = customName;
+    setLlmCustomNames(newCustomNames);
+  };
+
+  const getLlmDisplayName = (index) => llmNames[index] || `LLM ${index + 1}`;
+
+  const getLlmBenchmarkState = (index) => {
+    const baseline = llmGeneratedBaselines[index];
+    const hasGeneratedBaseline = typeof baseline === "string";
+    const isOriginal = hasGeneratedBaseline && llmCodes[index] === baseline;
+    const isAltered = hasGeneratedBaseline && !isOriginal;
+    return {
+      hasGeneratedBaseline,
+      isOriginal,
+      isAltered,
+      promptUsed: llmGeneratedPrompts[index] || null,
+    };
+  };
+
+  const getConfiguredLlmCards = () => {
+    return llmCodes.map((code, index) => {
+      const llmName = llmNames[index];
+      const llmMeta = availableLlms.find((row) => row.llmName === llmName) || null;
+      return {
+        index,
+        code,
+        llmName,
+        label: getLlmDisplayName(index),
+        provider: llmMeta?.provider || null,
+        modelIdentifier: llmMeta?.modelIdentifier || null,
+      };
+    });
+  };
+
+  const togglePromptTarget = (index) => {
+    setSelectedPromptTargets((prev) =>
+      prev.includes(index) ? prev.filter((id) => id !== index) : [...prev, index]
+    );
+  };
+
+  const handleGenerateFromPrompt = async () => {
+    if (isCompletedComparison) return;
+
+    if (!promptText.trim()) {
+      setError("Prompt is required before generating code.");
+      return;
+    }
+
+    if (selectedPromptTargets.length === 0) {
+      setError("Select at least one LLM card to generate code.");
+      return;
+    }
+
+    const cards = getConfiguredLlmCards();
+    const undefinedModelCards = cards.filter((card) => !card.llmName || !card.modelIdentifier);
+    if (undefinedModelCards.length > 0) {
+      setError(
+        `Define models for all LLMs before prompt generation. Missing model for: ${undefinedModelCards
+          .map((card) => card.label)
+          .join(", ")}`
+      );
+      return;
+    }
+
+    const selectedCards = cards.filter((card) => selectedPromptTargets.includes(card.index));
+
+    const selectedProviders = [...new Set(selectedCards.map((card) => (card.provider || "").trim()).filter(Boolean))];
+    if (selectedProviders.length === 0) {
+      setError("Could not resolve providers for selected LLMs.");
+      return;
+    }
+
+    try {
+      setIsGeneratingFromPrompt(true);
+      setError("");
+
+      const token = await getToken();
+      const availabilityRes = await fetch(`${BACKEND_URL}/user-api-keys/available-providers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!availabilityRes.ok) {
+        const data = await availabilityRes.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to verify provider API availability.");
+      }
+
+      const availabilityData = await availabilityRes.json();
+      const availableProviders = new Set(
+        (availabilityData.providers || []).map((provider) => String(provider).toLowerCase())
+      );
+
+      const missingProviders = selectedProviders.filter(
+        (provider) => !availableProviders.has(provider.toLowerCase())
+      );
+
+      if (missingProviders.length > 0) {
+        throw new Error(
+          `Provider API is not available for: ${missingProviders.join(", ")}. Add and validate API keys first.`
+        );
+      }
+
+      const generationRes = await fetch(
+        `${BACKEND_URL}/projects/${projectId}/comparisons/${comparisonId}/generate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            promptText,
+            targets: selectedCards.map((card) => ({
+              targetIndex: card.index,
+              llmName: card.llmName,
+            })),
+          }),
+        }
+      );
+
+      if (!generationRes.ok) {
+        const data = await generationRes.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to generate code from selected LLMs.");
+      }
+
+      const generationData = await generationRes.json();
+      const generationResults = Array.isArray(generationData.results) ? generationData.results : [];
+
+      const nextCodes = [...llmCodes];
+      const nextBaselines = [...llmGeneratedBaselines];
+      const nextPrompts = [...llmGeneratedPrompts];
+      const failedTargets = [];
+
+      generationResults.forEach((result) => {
+        if (result?.status === "success" && typeof result.generatedCode === "string") {
+          nextCodes[result.targetIndex] = result.generatedCode;
+          nextBaselines[result.targetIndex] = result.generatedCode;
+          nextPrompts[result.targetIndex] = promptText.trim();
+          return;
+        }
+
+        failedTargets.push(
+          `${result?.llmName || `LLM ${Number(result?.targetIndex) + 1}`}: ${result?.error || "Generation failed"}`
+        );
+      });
+
+      setLlmCodes(nextCodes);
+      setLlmGeneratedBaselines(nextBaselines);
+      setLlmGeneratedPrompts(nextPrompts);
+
+      if (failedTargets.length > 0) {
+        setError(`Some LLM generations failed. ${failedTargets.join(" | ")}`);
+      }
+    } catch (err) {
+      setError(err.message || "Failed to generate code from prompt.");
+    } finally {
+      setIsGeneratingFromPrompt(false);
+    }
+  };
+
+  const getCodeItems = (isHumanVsLlm) => {
+    if (isHumanVsLlm) {
+      return [
+        {
+          codeKey: "human",
+          label: "Human",
+          code: humanCode,
+          isLlm: false,
+        },
+        ...llmCodes.map((code, index) => ({
+          codeKey: `llm-${index}`,
+          label: getLlmDisplayName(index),
+          code,
+          isLlm: true,
+          llmIndex: index,
+        })),
+      ];
+    }
+
+    return llmCodes.map((code, index) => ({
+      codeKey: `llm-${index}`,
+      label: getLlmDisplayName(index),
+      code,
+      isLlm: true,
+      llmIndex: index,
+    }));
+  };
+
+  const getLanguageValidation = (items) => {
+    const detections = items.map((item) => ({
+      codeKey: item.codeKey,
+      label: item.label,
+      ...detectLanguage(item.code),
+    }));
+
+    const nonEmptyDetections = detections.filter((d) => d.language);
+    if (nonEmptyDetections.length === 0) {
+      return { isValid: false, message: "Could not detect language from the provided code snippets.", detections };
+    }
+
+    const uniqueLanguages = [...new Set(nonEmptyDetections.map((d) => d.language))];
+    if (uniqueLanguages.length > 1) {
+      const detail = detections
+        .map((d) => `${d.label}: ${d.display}`)
+        .join(", ");
+      return {
+        isValid: false,
+        message: `All code samples must be in the same language. Detected -> ${detail}`,
+        detections,
+      };
+    }
+
+    if (detections.some((d) => !d.language)) {
+      return {
+        isValid: false,
+        message: "Language detection failed for one or more snippets. Please provide clearer code.",
+        detections,
+      };
+    }
+
+    return { isValid: true, language: detections[0].display, detections };
+  };
+
   const handleAnalyze = async () => {
+    if (isCompletedComparison) return;
+
     const isHumanVsLlm = comparison?.type === "Human vs LLM";
-    
+
     if (isHumanVsLlm && !humanCode.trim()) {
       alert("Please provide the human-written code sample.");
       return;
     }
-    
-    if (llmCodes.some(code => !code.trim())) {
+
+    if (llmCodes.some((code) => !code.trim())) {
       alert("Please provide code for all LLM fields.");
+      return;
+    }
+
+    const unselectedLLMs = llmCodes
+      .map((_, idx) => idx)
+      .filter((idx) => !llmNames[idx]);
+
+    if (unselectedLLMs.length > 0) {
+      alert(
+        `Please select or specify an LLM for the following fields: ${unselectedLLMs
+          .map((idx) => `LLM ${idx + 1}`)
+          .join(", ")}`
+      );
       return;
     }
 
@@ -113,6 +603,7 @@ export default function ComparisonPage() {
       setIsAnalyzing(true);
       setError(null);
       setResults(null);
+      setRawAnalyzerResponses({});
 
       const analyzers = [];
       if (selectedAnalyses.bandit) analyzers.push({ name: "bandit", fn: analyzeBandit });
@@ -120,44 +611,97 @@ export default function ComparisonPage() {
       if (selectedAnalyses.sonar) analyzers.push({ name: "sonar", fn: analyzeCode });
       if (selectedAnalyses.aiServer) analyzers.push({ name: "aiServer", fn: analyzeAiServer });
 
-      // Build analysis tasks for each LLM
-      const allLlmResults = [];
-      
-      // For LLM vs LLM, we'll treat llmCodes[0] as the "human" base for comparison against the rest,
-      // or we can just compare them pairwise if there are exactly two.
-      // If there are >2, we compare index 0 against index 1, index 0 against index 2, etc.
-      const baseCode = isHumanVsLlm ? humanCode : llmCodes[0];
-      const targetCodes = isHumanVsLlm ? llmCodes : llmCodes.slice(1);
-      
-      for (let i = 0; i < targetCodes.length; i++) {
-        const resultsArray = await Promise.allSettled(
-          analyzers.map((a) => a.fn(baseCode, targetCodes[i]))
-        );
-
-        const combinedResults = {};
-        analyzers.forEach((a, j) => {
-          const res = resultsArray[j];
-          combinedResults[a.name] = res.status === "fulfilled" ? res.value : {
-            human: { findings: [] },
-            llm: { findings: [] },
-            success: false,
-          };
-        });
-
-        if (Object.values(combinedResults).some((r) => !r.success)) {
-          console.warn(`Some analyses failed for Target ${i+1}`);
-        }
-
-        allLlmResults.push({
-          sessionId: combinedResults.bandit?.sessionId || null,
-          bandit: selectedAnalyses.bandit ? combinedResults.bandit : null,
-          semgrep: selectedAnalyses.semgrep ? combinedResults.semgrep : null,
-          sonar: selectedAnalyses.sonar ? combinedResults.sonar : null,
-          aiServer: selectedAnalyses.aiServer ? combinedResults.aiServer : null,
-        });
+      if (analyzers.length === 0) {
+        alert("Please select at least one analyzer.");
+        return;
       }
 
-      setResults(allLlmResults);
+      const codeItems = getCodeItems(isHumanVsLlm);
+      const languageValidation = getLanguageValidation(codeItems);
+      if (!languageValidation.isValid) {
+        alert(languageValidation.message);
+        return;
+      }
+
+      const rawByCode = {};
+      const resultItems = [];
+
+      for (const codeItem of codeItems) {
+        const settled = await Promise.allSettled(
+          analyzers.map((a) => a.fn(codeItem.code, codeItem.code))
+        );
+
+        const analyzerPayloads = {
+          bandit: null,
+          semgrep: null,
+          sonar: null,
+          aiServer: null,
+        };
+
+        analyzers.forEach((a, i) => {
+          const runResult = settled[i];
+          if (runResult.status === "fulfilled") {
+            const responsePayload = runResult.value;
+            analyzerPayloads[a.name] = responsePayload?.human || responsePayload?.llm || null;
+          }
+        });
+
+        rawByCode[codeItem.codeKey] = {
+          codeKey: codeItem.codeKey,
+          label: codeItem.label,
+          analyzers: analyzerPayloads,
+        };
+
+        resultItems.push({
+          codeKey: codeItem.codeKey,
+          label: codeItem.label,
+        });
+
+        console.log(`[Comparison ${comparisonId}] raw analyzer response for ${codeItem.label}`, analyzerPayloads);
+      }
+
+      setResults(resultItems);
+      setRawAnalyzerResponses(rawByCode);
+
+      const token = await getToken();
+      const llmSamplesPayload = llmCodes.map((code, index) => ({
+        llmName: llmNames[index],
+        codeContent: code,
+        generatedBaselineCode: llmGeneratedBaselines[index],
+        generatedPromptText: llmGeneratedPrompts[index],
+      }));
+
+      const saveRes = await fetch(
+        `${BACKEND_URL}/projects/${projectId}/comparisons/${comparisonId}/complete`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            humanCode: isHumanVsLlm ? humanCode : null,
+            llmSamples: llmSamplesPayload,
+            rawAnalyzerResponses: rawByCode,
+            detectedLanguageName: languageValidation.language,
+          }),
+        }
+      );
+
+      if (!saveRes.ok) {
+        const saveErr = await saveRes.json().catch(() => ({}));
+        throw new Error(saveErr.error || "Analysis finished but failed to save comparison data");
+      }
+
+      setComparison((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "Completed",
+              completedAt: new Date().toISOString(),
+            }
+          : prev
+      );
     } catch (err) {
       setError(err.message || "Unexpected error during analysis");
     } finally {
@@ -166,10 +710,20 @@ export default function ComparisonPage() {
   };
 
   const handleClear = () => {
+    if (isCompletedComparison) return;
+
     setHumanCode("");
-    setLlmCodes(comparison?.type === "LLM vs LLM" ? ["", ""] : [""]);
+    const newCodes = comparison?.type === "LLM vs LLM" ? ["", ""] : [""];
+    setLlmCodes(newCodes);
+    setLlmNames(newCodes.map(() => ""));
+    setLlmCustomNames(newCodes.map(() => ""));
+    setLlmGeneratedBaselines(newCodes.map(() => null));
+    setLlmGeneratedPrompts(newCodes.map(() => null));
     setResults(null);
+    setRawAnalyzerResponses({});
     setError(null);
+    setPromptText("");
+    setSelectedPromptTargets([]);
     setSelectedAnalyses({ bandit: true, semgrep: false, sonar: false, aiServer: false });
   };
 
@@ -195,6 +749,25 @@ export default function ComparisonPage() {
   }
 
   const isHumanVsLlm = comparison.type === "Human vs LLM";
+  const isCompletedComparison = (comparison?.status || "").toLowerCase() === "completed";
+  const hasAnyRawResults = Object.keys(rawAnalyzerResponses || {}).length > 0;
+  const codeItems = getCodeItems(isHumanVsLlm);
+  const languageValidation = getLanguageValidation(codeItems);
+  const configuredLlmCards = getConfiguredLlmCards();
+  const alteredGeneratedCards = configuredLlmCards.filter(
+    (card) => getLlmBenchmarkState(card.index).isAltered
+  );
+
+  const openRawModal = (codeKey) => {
+    setRawResultsModalState({
+      isOpen: true,
+      codeKey,
+    });
+  };
+
+  const activeCodeEntry = rawResultsModalState.codeKey
+    ? rawAnalyzerResponses?.[rawResultsModalState.codeKey]
+    : null;
 
   return (
     <div className="min-h-screen p-6">
@@ -214,9 +787,20 @@ export default function ComparisonPage() {
         <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
           <AlertCircle className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-sm text-slate-700 dark:text-slate-300">
-            Paste your code samples below. You can add multiple LLMs to compare against the {isHumanVsLlm ? "human code" : "first LLM code"}.
+            Enter each code sample in horizontal cards. Add LLMs to the right and scroll sideways when needed.
           </AlertDescription>
         </Alert>
+
+        {!isCompletedComparison && (
+          <Alert className={languageValidation.isValid ? "border-green-200 bg-green-50 dark:bg-green-950/20" : "border-amber-200 bg-amber-50 dark:bg-amber-950/20"}>
+            <AlertCircle className={languageValidation.isValid ? "h-4 w-4 text-green-600" : "h-4 w-4 text-amber-600"} />
+            <AlertDescription className={languageValidation.isValid ? "text-sm text-green-700 dark:text-green-300" : "text-sm text-amber-700 dark:text-amber-300"}>
+              {languageValidation.isValid
+                ? `Detected language: ${languageValidation.language}. Analysis is allowed.`
+                : languageValidation.message}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {error && (
           <Alert className="border-red-200 bg-red-50 dark:bg-red-950/20">
@@ -227,73 +811,156 @@ export default function ComparisonPage() {
           </Alert>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-6 items-stretch">
-          {/* Base Code Container */}
-          <div className="flex-1">
-            {isHumanVsLlm ? (
-              <CodeInputCard
-                title="Human-Written Code"
-                icon="human"
-                value={humanCode}
-                setValue={setHumanCode}
-                disabled={isAnalyzing}
-              />
-            ) : (
-              <CodeInputCard
-                title="LLM 1 (Base)"
-                icon="llm"
-                value={llmCodes[0]}
-                setValue={(val) => updateLlmCode(0, val)}
-                disabled={isAnalyzing}
-              />
-            )}
-          </div>
+        {!isCompletedComparison && alteredGeneratedCards.length > 0 && (
+          <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-sm text-amber-700 dark:text-amber-300">
+              Modifying generated code makes it ineligible for benchmarking. Altered cards: {alteredGeneratedCards
+                .map((card) => card.label)
+                .join(", ")}
+            </AlertDescription>
+          </Alert>
+        )}
 
-          <div className="hidden lg:flex flex-col justify-center items-center px-4">
-            <div className="bg-muted p-3 rounded-full">
-              <GitCompareArrows className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <span className="text-xs font-semibold mt-2 text-muted-foreground uppercase">VS</span>
-          </div>
+        <div className="overflow-x-auto pb-2">
+          <div className="flex min-w-max items-start gap-4">
+            {codeItems.map((item) => {
+              const canRemove =
+                item.isLlm &&
+                ((isHumanVsLlm && llmCodes.length > 1) || (!isHumanVsLlm && llmCodes.length > 2));
 
-          {/* Targets Container */}
-          <div className="flex-1 space-y-4">
-            {(isHumanVsLlm ? llmCodes : llmCodes.slice(1)).map((code, idx) => {
-              const actualIndex = isHumanVsLlm ? idx : idx + 1;
               return (
-                <div key={actualIndex} className="relative">
+                <div key={item.codeKey} className="w-[420px] shrink-0 space-y-3 rounded-xl border bg-card p-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">{item.label}</h3>
+                    <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+                      {detectLanguage(item.code).display}
+                    </span>
+                    {canRemove && (
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => removeLlmField(item.llmIndex)}
+                        disabled={isAnalyzing || isCompletedComparison}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
                   <CodeInputCard
-                    title={`LLM ${isHumanVsLlm ? actualIndex + 1 : actualIndex + 1}`}
-                    icon="llm"
-                    value={code}
-                    setValue={(val) => updateLlmCode(actualIndex, val)}
-                    disabled={isAnalyzing}
+                    title={item.isLlm ? "LLM Code" : "Human Code"}
+                    icon={item.isLlm ? "llm" : "human"}
+                    value={item.code}
+                    setValue={(val) => {
+                      if (item.isLlm) updateLlmCode(item.llmIndex, val);
+                      else setHumanCode(val);
+                    }}
+                    disabled={isAnalyzing || isCompletedComparison}
                   />
-                  {((isHumanVsLlm && llmCodes.length > 1) || (!isHumanVsLlm && llmCodes.length > 2)) && (
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-2 right-2 h-8 w-8"
-                      onClick={() => removeLlmField(actualIndex)}
-                      disabled={isAnalyzing}
+
+                  {item.isLlm && (
+                    <LLMSelector
+                      selectedLLM={llmNames[item.llmIndex]}
+                      customLLMName={llmCustomNames[item.llmIndex]}
+                      onSelect={(name) => updateLlmName(item.llmIndex, name)}
+                      onCustomChange={(name) => updateLlmCustomName(item.llmIndex, name)}
+                      disabled={isAnalyzing || isCompletedComparison}
+                      label={`${item.label} Model`}
+                    />
+                  )}
+
+                  {item.isLlm && getLlmBenchmarkState(item.llmIndex).hasGeneratedBaseline && (
+                    <div
+                      className={`rounded-md border px-2 py-1 text-xs ${
+                        getLlmBenchmarkState(item.llmIndex).isOriginal
+                          ? "border-green-200 bg-green-50 text-green-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      {getLlmBenchmarkState(item.llmIndex).isOriginal
+                        ? "Using original generated code (benchmark eligible)."
+                        : "Code was modified after generation (benchmark ineligible)."}
+                    </div>
                   )}
                 </div>
               );
             })}
-            <Button 
-              variant="outline" 
-              className="w-full border-dashed" 
-              onClick={addLlmField}
-              disabled={isAnalyzing}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Another LLM
-            </Button>
+
+            <div className="w-[260px] shrink-0 rounded-xl border border-dashed bg-card p-3">
+              <Button
+                variant="outline"
+                className="h-full w-full border-dashed"
+                onClick={addLlmField}
+                disabled={isAnalyzing || isCompletedComparison}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add Another LLM
+              </Button>
+            </div>
           </div>
         </div>
+
+        {!isCompletedComparison && (
+          <div className="rounded-xl border bg-card p-4 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold">Generate LLM Code From Prompt</h3>
+              <p className="text-sm text-muted-foreground">
+                Select one or more LLM cards and generate code from a single prompt.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="llm-generation-prompt">Prompt</Label>
+              <Textarea
+                id="llm-generation-prompt"
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                placeholder="Describe what code should be generated..."
+                disabled={isGeneratingFromPrompt || isAnalyzing}
+                className="min-h-28"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Select LLM Targets</Label>
+              <div className="grid gap-2 md:grid-cols-2">
+                {configuredLlmCards.map((card) => (
+                  <Label
+                    key={card.index}
+                    htmlFor={`prompt-target-${card.index}`}
+                    className="hover:bg-accent/40 flex items-start gap-3 rounded-lg border p-3 cursor-pointer"
+                  >
+                    <Checkbox
+                      id={`prompt-target-${card.index}`}
+                      checked={selectedPromptTargets.includes(card.index)}
+                      onCheckedChange={() => togglePromptTarget(card.index)}
+                      disabled={isGeneratingFromPrompt || isAnalyzing}
+                    />
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium">{card.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {card.provider || "No provider"}
+                        {card.modelIdentifier ? ` • ${card.modelIdentifier}` : " • No model"}
+                      </div>
+                    </div>
+                  </Label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleGenerateFromPrompt}
+                disabled={isGeneratingFromPrompt || isAnalyzing || configuredLlmCards.length === 0}
+              >
+                {isGeneratingFromPrompt && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Generate For Selected LLMs
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="mt-6 bg-card border rounded-xl p-4">
           <h4 className="font-semibold mb-3">Select Analyses:</h4>
@@ -303,14 +970,14 @@ export default function ComparisonPage() {
                 key={key}
                 htmlFor={key}
                 className="hover:bg-accent/50 flex items-center gap-2 rounded-lg border p-3 cursor-pointer
-                  has-[[aria-checked=true]]:border-primary 
+                  has-[[aria-checked=true]]:border-primary
                   has-[[aria-checked=true]]:bg-primary/5"
               >
                 <Checkbox
                   id={key}
                   checked={selectedAnalyses[key]}
                   onCheckedChange={(checked) => handleToggleAnalysis(key, checked)}
-                  disabled={isAnalyzing}
+                  disabled={isAnalyzing || isCompletedComparison}
                 />
                 <span className="font-medium capitalize">{key}</span>
               </Label>
@@ -319,38 +986,64 @@ export default function ComparisonPage() {
         </div>
 
         <div className="flex items-center gap-4 py-4 justify-end">
-          <Button variant="outline" onClick={handleClear} disabled={isAnalyzing}>
+          <Button variant="outline" onClick={handleClear} disabled={isAnalyzing || isCompletedComparison}>
             Clear
           </Button>
-          <Button onClick={handleAnalyze} disabled={isAnalyzing} size="lg">
+          <Button onClick={handleAnalyze} disabled={isAnalyzing || isCompletedComparison || !languageValidation.isValid} size="lg">
             {isAnalyzing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isAnalyzing ? "Analyzing..." : "Run Analysis"}
+            {isCompletedComparison ? "Completed" : isAnalyzing ? "Analyzing..." : "Run Analysis"}
           </Button>
         </div>
 
         {results && results.length > 0 && (
           <div className="mt-8 space-y-6">
             <h2 className="text-xl font-bold">Analysis Results</h2>
-            {results.length === 1 ? (
-               <ResultsWrapper results={results[0]} />
-            ) : (
-              <Tabs defaultValue="target-0">
-                <TabsList className="w-full justify-start overflow-x-auto flex-nowrap h-auto p-1 bg-muted/50">
-                  {results.map((r, i) => (
-                    <TabsTrigger key={`target-${i}`} value={`target-${i}`} className="py-2.5">
-                      Vs LLM {isHumanVsLlm ? i + 1 : i + 2}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                {results.map((r, i) => (
-                  <TabsContent key={`content-${i}`} value={`target-${i}`} className="mt-6">
-                    <ResultsWrapper results={r} />
-                  </TabsContent>
-                ))}
-              </Tabs>
-            )}
+
+            <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-sm text-slate-700 dark:text-slate-300">
+                Results are code-wise. Open a code card to view all selected analyzers in one raw output modal.
+              </AlertDescription>
+            </Alert>
+
+            <div className="overflow-x-auto pb-2">
+              <div className="flex min-w-max items-stretch gap-4">
+                {results.map((resultItem) => {
+                  const codeResult = rawAnalyzerResponses?.[resultItem.codeKey];
+                  const availableAnalyzers = Object.entries(codeResult?.analyzers || {})
+                    .filter(([, payload]) => Boolean(payload))
+                    .map(([name]) =>
+                      name === "aiServer" ? "AI Server" : name.charAt(0).toUpperCase() + name.slice(1)
+                    );
+
+                  return (
+                    <div key={resultItem.codeKey} className="w-[320px] shrink-0 rounded-xl border bg-card p-4 space-y-3">
+                      <h3 className="font-semibold">{resultItem.label}</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {availableAnalyzers.length > 0
+                          ? `Available raw outputs: ${availableAnalyzers.join(", ")}`
+                          : "No raw output available"}
+                      </p>
+                      <Button
+                        className="w-full"
+                        onClick={() => openRawModal(resultItem.codeKey)}
+                        disabled={!hasAnyRawResults || availableAnalyzers.length === 0}
+                      >
+                        View All Raw Outputs
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
+
+        <AnalyzerRawModal
+          isOpen={rawResultsModalState.isOpen}
+          onClose={() => setRawResultsModalState((prev) => ({ ...prev, isOpen: false }))}
+          codeEntry={activeCodeEntry}
+        />
       </div>
     </div>
   );

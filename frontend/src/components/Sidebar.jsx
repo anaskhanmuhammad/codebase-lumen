@@ -22,6 +22,7 @@ import {
   SearchCode,
   DockIcon,
   FolderOpen,
+  KeyRound,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -85,6 +86,16 @@ export default function AppSidebar() {
                   <Link href="/scan-dockerfile">
                     <DockIcon className="mr-2 h-4 w-4" />
                     Scan Dockerfile
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* API Keys */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link href="/api-keys">
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    API Keys
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

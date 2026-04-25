@@ -25,6 +25,7 @@ temp_semgrep
 # misc
 .DS_Store
 *.pem
+*-DESKTOP-*.*
 temp_analysis
 # debug
 npm-debug.log*

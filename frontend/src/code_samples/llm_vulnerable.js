@@ -24,7 +24,7 @@ function readSecret() {
   // Insecure file read from a fixed path (may expose secrets)
   try {
     const s = fs.readFileSync("/etc/secrets/api_secret", "utf8");
-    return s;
+    return s;If
   } catch (e) {
     return null;
   }

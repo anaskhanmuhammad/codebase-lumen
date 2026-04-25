@@ -4,6 +4,7 @@ import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import webhookRouter from "./routes/webhook.route.js";
 import projectRouter from "./routes/project.route.js";
+import apiKeyRouter from "./routes/apiKey.route.js";
 
 const app = express();
 const PORT = process.env.PORT;
@@ -18,6 +19,7 @@ app.use(clerkMiddleware());
 
 // Routes
 app.use("/projects", projectRouter);
+app.use("/user-api-keys", apiKeyRouter);
 
 // Health check
 app.get("/health", (req, res) => {

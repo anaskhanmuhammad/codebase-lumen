@@ -131,13 +131,7 @@ async function analyzeSingleCodeWithBandit(code, identifier) {
     console.log(`Successfully parsed Bandit results for ${identifier}`);
     console.log(`Found ${banditResults.results?.length || 0} issues`);
 
-    // Transform Bandit results to a standardized format
-    const transformedResults = transformBanditResults(
-      banditResults,
-      identifier
-    );
-
-    return transformedResults;
+    return banditResults;
   } catch (error) {
     console.error(
       `Error reading/parsing Bandit results for ${identifier}:`,

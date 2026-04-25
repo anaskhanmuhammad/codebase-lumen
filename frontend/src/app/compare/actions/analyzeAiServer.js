@@ -29,7 +29,7 @@ export async function analyzeAiServer(humanCode, llmCode) {
         
         const response = await axios.post(AI_SERVER_URL, {
           language: "javascript", // Defaulting as per prompt example, strictly could be dynamic but fine for now
-          framework: "React, Node.js, Express", // Defaulting as per prompt example
+          framework: null, // Defaulting as per prompt example
           code: item.code
         }, {
           headers: {
@@ -42,7 +42,7 @@ export async function analyzeAiServer(humanCode, llmCode) {
             return {
                 type: item.type,
                 success: true,
-                data: response.data.analysis
+            raw: response.data,
             };
         } else {
              throw new Error("AI Server returned incomplete or failed status");
@@ -53,7 +53,8 @@ export async function analyzeAiServer(humanCode, llmCode) {
         return {
           type: item.type,
           success: false,
-          error: err.message
+          error: err.message,
+          raw: err.response?.data || null,
         };
       }
     });
@@ -65,8 +66,8 @@ export async function analyzeAiServer(humanCode, llmCode) {
 
     return {
       success: true,
-      human: humanResult,
-      llm: llmResult
+      human: humanResult?.raw || null,
+      llm: llmResult?.raw || null,
     };
 
   } catch (error) {
