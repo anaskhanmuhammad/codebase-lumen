@@ -6,8 +6,8 @@ import { AlertCircle, XCircle } from "lucide-react";
 
 import CodeInputCard from "./_components/CodeInputCard";
 import ActionButtons from "./_components/ActionButtons";
-import ResultsWrapper from "./_components/Results/ResultsWrapper";
 import Header from "./_components/Header";
+import AnalyzerRawModal from "./_components/RawResults/AnalyzerRawModal";
 
 import { analyzeBandit } from "./actions/analyzeBandit";
 import { analyzeSemgrep } from "./actions/analyzeSemgrep";
@@ -15,6 +15,66 @@ import { analyzeCode } from "./actions/analyzeCode";
 import { analyzeAiServer } from "./actions/analyzeAiServer";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import hljs from "highlight.js/lib/core";
+import python from "highlight.js/lib/languages/python";
+import javascript from "highlight.js/lib/languages/javascript";
+import typescript from "highlight.js/lib/languages/typescript";
+import java from "highlight.js/lib/languages/java";
+import cpp from "highlight.js/lib/languages/cpp";
+import csharp from "highlight.js/lib/languages/csharp";
+import go from "highlight.js/lib/languages/go";
+import rust from "highlight.js/lib/languages/rust";
+import ruby from "highlight.js/lib/languages/ruby";
+import php from "highlight.js/lib/languages/php";
+import kotlin from "highlight.js/lib/languages/kotlin";
+import swift from "highlight.js/lib/languages/swift";
+import sql from "highlight.js/lib/languages/sql";
+import bash from "highlight.js/lib/languages/bash";
+
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("java", java);
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("csharp", csharp);
+hljs.registerLanguage("go", go);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("ruby", ruby);
+hljs.registerLanguage("php", php);
+hljs.registerLanguage("kotlin", kotlin);
+hljs.registerLanguage("swift", swift);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("bash", bash);
+
+const SUPPORTED_LANGS = [
+  "python",
+  "javascript",
+  "typescript",
+  "java",
+  "cpp",
+  "csharp",
+  "go",
+  "rust",
+  "ruby",
+  "php",
+  "kotlin",
+  "swift",
+  "sql",
+  "bash",
+];
+
+function detectLanguage(code) {
+  const text = (code || "").trim();
+  if (!text) return null;
+
+  try {
+    const result = hljs.highlightAuto(text, SUPPORTED_LANGS);
+    return result.language || null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Compare() {
   const [humanCode, setHumanCode] = useState("");
@@ -22,6 +82,11 @@ export default function Compare() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
+  const [rawAnalyzerResponses, setRawAnalyzerResponses] = useState({});
+  const [rawResultsModalState, setRawResultsModalState] = useState({
+    isOpen: false,
+    codeKey: null,
+  });
 
   // Track selected analyzers
   const [selectedAnalyses, setSelectedAnalyses] = useState({
@@ -44,6 +109,10 @@ export default function Compare() {
       return;
     }
 
+    const detectedHumanLanguage = detectLanguage(humanCode);
+    const detectedLlmLanguage = detectLanguage(llmCode);
+    const detectedLanguageKey = detectedHumanLanguage || detectedLlmLanguage || "javascript";
+
     try {
       setIsAnalyzing(true);
       setError(null);
@@ -62,7 +131,7 @@ export default function Compare() {
 
       // Run selected analyses in parallel
       const resultsArray = await Promise.allSettled(
-        analyzers.map((a) => a.fn(humanCode, llmCode))
+        analyzers.map((a) => a.fn(humanCode, llmCode, detectedLanguageKey))
       );
 
       // Map results back to analyzer names
@@ -85,20 +154,35 @@ export default function Compare() {
         );
       }
 
-      // Normalize results for UI
-      const unifiedResults = {
-        sessionId: combinedResults.bandit?.sessionId || null,
-
-        bandit: selectedAnalyses.bandit ? combinedResults.bandit : null,
-
-        semgrep: selectedAnalyses.semgrep ? combinedResults.semgrep : null,
-
-        sonar: selectedAnalyses.sonar ? combinedResults.sonar : null,
-
-        aiServer: selectedAnalyses.aiServer ? combinedResults.aiServer : null,
+      // Normalize results for raw-output modal by code sample
+      const rawByCode = {
+        human: {
+          codeKey: "human",
+          label: "Human Code",
+          analyzers: {
+            bandit: combinedResults.bandit?.human || null,
+            semgrep: combinedResults.semgrep?.human || null,
+            sonar: combinedResults.sonar?.human || null,
+            aiServer: combinedResults.aiServer?.human || null,
+          },
+        },
+        llm: {
+          codeKey: "llm",
+          label: "LLM Code",
+          analyzers: {
+            bandit: combinedResults.bandit?.llm || null,
+            semgrep: combinedResults.semgrep?.llm || null,
+            sonar: combinedResults.sonar?.llm || null,
+            aiServer: combinedResults.aiServer?.llm || null,
+          },
+        },
       };
 
-      setResults(unifiedResults);
+      setRawAnalyzerResponses(rawByCode);
+      setResults([
+        { codeKey: "human", label: "Human Code" },
+        { codeKey: "llm", label: "LLM Code" },
+      ]);
     } catch (err) {
       setError(err.message || "Unexpected error during analysis");
     } finally {
@@ -110,9 +194,23 @@ export default function Compare() {
     setHumanCode("");
     setLlmCode("");
     setResults(null);
+    setRawAnalyzerResponses({});
     setError(null);
     setSelectedAnalyses({ bandit: true, semgrep: false, sonar: false, aiServer: false });
   };
+
+  const hasAnyRawResults = Object.keys(rawAnalyzerResponses || {}).length > 0;
+
+  const openRawModal = (codeKey) => {
+    setRawResultsModalState({
+      isOpen: true,
+      codeKey,
+    });
+  };
+
+  const activeCodeEntry = rawResultsModalState.codeKey
+    ? rawAnalyzerResponses?.[rawResultsModalState.codeKey]
+    : null;
 
   return (
     <div className="min-h-screen p-6">
@@ -193,7 +291,53 @@ export default function Compare() {
         />
 
         {/* Results */}
-        {results && <ResultsWrapper results={results} />}
+        {results && results.length > 0 && (
+          <div className="mt-8 space-y-6">
+            <h2 className="text-xl font-bold">Analysis Results</h2>
+
+            <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-sm text-slate-700 dark:text-slate-300">
+                Results are code-wise. Open a code card to view all selected analyzers in one raw output modal.
+              </AlertDescription>
+            </Alert>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {results.map((resultItem) => {
+                const codeResult = rawAnalyzerResponses?.[resultItem.codeKey];
+                const availableAnalyzers = Object.entries(codeResult?.analyzers || {})
+                  .filter(([, payload]) => Boolean(payload))
+                  .map(([name]) =>
+                    name === "aiServer" ? "AI Server" : name.charAt(0).toUpperCase() + name.slice(1)
+                  );
+
+                return (
+                  <div key={resultItem.codeKey} className="rounded-xl border bg-card p-4 space-y-3">
+                    <h3 className="font-semibold">{resultItem.label}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {availableAnalyzers.length > 0
+                        ? `Available raw outputs: ${availableAnalyzers.join(", ")}`
+                        : "No raw output available"}
+                    </p>
+                    <Button
+                      className="w-full"
+                      onClick={() => openRawModal(resultItem.codeKey)}
+                      disabled={!hasAnyRawResults || availableAnalyzers.length === 0}
+                    >
+                      View All Raw Outputs
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <AnalyzerRawModal
+          isOpen={rawResultsModalState.isOpen}
+          onClose={() => setRawResultsModalState((prev) => ({ ...prev, isOpen: false }))}
+          codeEntry={activeCodeEntry}
+        />
       </div>
     </div>
   );

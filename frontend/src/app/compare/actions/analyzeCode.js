@@ -15,7 +15,122 @@ if (!SONARQUBE_TOKEN) {
 
 const TEMP_DIR = path.join(process.cwd(), "temp_analysis");
 
-export async function analyzeCode(humanCode, llmCode) {
+const SONAR_LANGUAGE_MAP = {
+  python: "py",
+  javascript: "js",
+  typescript: "ts",
+  java: "java",
+  cpp: "cpp",
+  csharp: "cs",
+  go: "go",
+  rust: "rs",
+  ruby: "rb",
+  php: "php",
+  kotlin: "kt",
+  swift: "swift",
+  sql: "sql",
+  bash: "sh",
+};
+
+function resolveSonarExtension(language) {
+  const normalized = String(language || "")
+    .trim()
+    .toLowerCase();
+  return SONAR_LANGUAGE_MAP[normalized] || SONAR_LANGUAGE_MAP.javascript;
+}
+
+function mapSonarSeverityToSarifLevel(severity) {
+  const normalized = String(severity || "").trim().toUpperCase();
+  if (normalized === "BLOCKER" || normalized === "CRITICAL") return "error";
+  if (normalized === "MAJOR") return "warning";
+  return "note";
+}
+
+function getSonarArtifactUri(issue, fallbackComponentKey) {
+  const component = String(issue?.component || fallbackComponentKey || "");
+  const separatorIndex = component.indexOf(":");
+  let uri = separatorIndex >= 0 ? component.slice(separatorIndex + 1) : component;
+  // Ensure we don't have a leading slash which can break some SARIF viewers
+  return uri.startsWith("/") ? uri.slice(1) : uri;
+}
+
+function createSonarSarifResponse(issuesResponse, componentKey) {
+  const issues = Array.isArray(issuesResponse?.issues) ? issuesResponse.issues : [];
+  const ruleMap = new Map();
+
+  const sarifResults = issues.map((issue) => {
+    const ruleId = issue.rule || issue.ruleKey || issue.key || "sonar-issue";
+    const region = issue.textRange || {};
+
+    if (!ruleMap.has(ruleId)) {
+      ruleMap.set(ruleId, {
+        id: ruleId,
+        name: ruleId,
+        shortDescription: {
+          text: issue.message || ruleId,
+        },
+        fullDescription: {
+          text: issue.message || ruleId,
+        },
+      });
+    }
+
+    return {
+      ruleId,
+      level: mapSonarSeverityToSarifLevel(issue.severity),
+      message: {
+        text: issue.message || ruleId,
+      },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: {
+              uri: getSonarArtifactUri(issue, componentKey),
+            },
+            region: {
+              startLine: region.startLine || 1,
+              startColumn: region.startOffset || 1,
+              endLine: region.endLine || region.startLine || 1,
+              endColumn: region.endOffset || region.startOffset || 1,
+            },
+          },
+        },
+      ],
+      properties: {
+        severity: issue.severity || null,
+        type: issue.type || null,
+        category: issue.type === "VULNERABILITY" ? "Security" : "Quality", 
+        effort: issue.effort || null,
+        status: issue.status || null,
+        rule: issue.rule || null,
+      },
+    };
+  });
+
+  return {
+    version: "2.1.0",
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "SonarQube",
+            informationUri: "https://www.sonarsource.com/products/sonarqube/",
+            rules: Array.from(ruleMap.values()),
+          },
+        },
+        results: sarifResults,
+        properties: {
+          componentKey,
+          totalIssues: sarifResults.length,
+          paging: issuesResponse?.paging || null,
+        },
+      },
+    ],
+  };
+}
+
+export async function analyzeCode(humanCode, llmCode, language = "javascript") {
   let sessionId;
   let projectKey;
 
@@ -24,21 +139,34 @@ export async function analyzeCode(humanCode, llmCode) {
     sessionId = uuidv4();
     projectKey = `session-${sessionId}`;
     const projectDir = path.join(TEMP_DIR, projectKey);
+    const fileExtension = resolveSonarExtension(language);
 
     console.log("Starting batched analysis for session:", sessionId);
-    
+
     // Setup project directory
     await fs.mkdir(projectDir, { recursive: true });
-    await fs.writeFile(path.join(projectDir, "human.js"), humanCode, "utf-8");
-    await fs.writeFile(path.join(projectDir, "llm.js"), llmCode, "utf-8");
+    await fs.writeFile(
+      path.join(projectDir, `human.${fileExtension}`),
+      humanCode,
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(projectDir, `llm.${fileExtension}`),
+      llmCode,
+      "utf-8",
+    );
 
     // Run combined analysis
     await runSonarAnalysis(projectDir, projectKey);
 
     // Fetch results for each file
     // Component key format in SonarQube is "projectKey:fileName"
-    const humanMetrics = await fetchFileMetrics(`${projectKey}:human.js`);
-    const llmMetrics = await fetchFileMetrics(`${projectKey}:llm.js`);
+    const humanMetrics = await fetchFileMetrics(
+      `${projectKey}:human.${fileExtension}`,
+    );
+    const llmMetrics = await fetchFileMetrics(
+      `${projectKey}:llm.${fileExtension}`,
+    );
 
     return {
       success: true,
@@ -59,7 +187,10 @@ export async function analyzeCode(humanCode, llmCode) {
     // Cleanup
     if (sessionId) {
       try {
-        await fs.rm(path.join(TEMP_DIR, projectKey), { recursive: true, force: true });
+        await fs.rm(path.join(TEMP_DIR, projectKey), {
+          recursive: true,
+          force: true,
+        });
       } catch (e) {
         console.error(`Failed to cleanup ${projectKey}:`, e);
       }
@@ -69,7 +200,7 @@ export async function analyzeCode(humanCode, llmCode) {
 
 async function runSonarAnalysis(projectDir, projectKey) {
   console.log(`Running SonarQube scanner for ${projectKey}...`);
-  
+
   const cachePath = path.resolve(process.cwd(), "../.cache/sonarqube");
   await fs.mkdir(cachePath, { recursive: true });
   process.env.SONAR_USER_HOME = cachePath;
@@ -91,87 +222,91 @@ async function runSonarAnalysis(projectDir, projectKey) {
           "sonar.projectKey": projectKey,
           "sonar.projectName": projectKey,
           "sonar.projectBaseDir": projectDir,
-          "sonar.sources": ".", // Scan all files in dir (human.js and llm.js)
+          "sonar.sources": ".",
           "sonar.scm.disabled": "true",
-          "sonar.sourceEncoding": "UTF-8",
         },
       },
-      async (err, result) => {
+      async (err) => {
         if (err) return reject(err);
 
-        // Polling for task completion
-        const taskId = result?.ceTaskId;
-        if (taskId) {
-            try {
-                await waitForTask(taskId);
-                resolve();
-            } catch(e) {
-                reject(e);
-            }
-        } else {
-            resolve();
-        }
-      }
+        // IMPORTANT: The scanner finishes, but we need to give the server
+        // a moment to even recognize the task exists before polling.
+        console.log("Scanner finished. Waiting for Server Compute Engine...");
+        await new Promise((r) => setTimeout(r, 2000));
+        resolve();
+      },
     );
   });
 }
 
 async function waitForTask(taskId) {
-    console.log(`Waiting for task ${taskId} to complete...`);
-    const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
-    const headers = { Authorization: `Basic ${auth}` };
-    
-    // Adaptive polling
-    let pollInterval = 500;
-    const maxRetries = 60; // 30-60 seconds max
+  console.log(`Waiting for task ${taskId} to complete...`);
+  const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
+  const headers = { Authorization: `Basic ${auth}` };
 
-    for (let i = 0; i < maxRetries; i++) {
-        const { data } = await axios.get(`${SONARQUBE_URL}/api/ce/task`, { 
-            params: { id: taskId }, 
-            headers 
-        });
-        
-        const status = data.task?.status;
-        if (status === "SUCCESS") return;
-        if (status === "FAILED" || status === "CANCELED") throw new Error(`Analysis ${status}`);
+  // Adaptive polling
+  let pollInterval = 500;
+  const maxRetries = 60; // 30-60 seconds max
 
-        await new Promise(r => setTimeout(r, pollInterval));
-        pollInterval = Math.min(pollInterval + 200, 2000);
-    }
-    throw new Error("Analysis task timed out");
+  for (let i = 0; i < maxRetries; i++) {
+    const { data } = await axios.get(`${SONARQUBE_URL}/api/ce/task`, {
+      params: { id: taskId },
+      headers,
+    });
+
+    const status = data.task?.status;
+    if (status === "SUCCESS") return;
+    if (status === "FAILED" || status === "CANCELED")
+      throw new Error(`Analysis ${status}`);
+
+    await new Promise((r) => setTimeout(r, pollInterval));
+    pollInterval = Math.min(pollInterval + 200, 2000);
+  }
+  throw new Error("Analysis task timed out");
 }
 
 async function fetchFileMetrics(componentKey) {
     const auth = Buffer.from(`${SONARQUBE_TOKEN}:`).toString("base64");
     const headers = { Authorization: `Basic ${auth}` };
-    const metricKeys = "bugs,vulnerabilities,code_smells,security_hotspots,duplicated_lines_density,ncloc,complexity,coverage";
 
-    // Retry logic for fetching measures (DB consistency delay)
-    let retryDelay = 500;
-    for (let i = 0; i < 20; i++) {
+    console.log(`Fetching metrics for: ${componentKey}`);
+
+    // Loop for up to 30 seconds
+    for (let i = 0; i < 15; i++) {
         try {
-            // Get measures
-            const measuresResp = await axios.get(`${SONARQUBE_URL}/api/measures/component`, {
-                params: { component: componentKey, metricKeys },
+            // First: Check if the component even exists in the DB
+            await axios.get(`${SONARQUBE_URL}/api/components/show`, {
+                params: { component: componentKey },
                 headers
             });
 
-            // Get issues
+            // Second: If it exists, get the measures
             const issuesResp = await axios.get(`${SONARQUBE_URL}/api/issues/search`, {
-                params: { componentKeys: componentKey },
+                params: { componentKeys: componentKey, ps: 100 },
                 headers
             });
+
+            console.log(`SonarQube default response for ${componentKey}:`);
+            console.log(JSON.stringify(issuesResp.data, null, 2));
+
+            const sarifResponse = createSonarSarifResponse(issuesResp.data, componentKey);
+
+            console.log(`SonarQube SARIF response for ${componentKey}:`);
+            console.log(JSON.stringify(sarifResponse, null, 2));
 
             return {
-              measuresResponse: measuresResp.data,
-              issuesResponse: issuesResp.data,
+              ...sarifResponse,
             };
 
         } catch (error) {
-            if (i === 19) throw error; 
-            // 404 means component not ready yet in some versions, or DB delay
-            await new Promise(r => setTimeout(r, retryDelay));
-            retryDelay = Math.min(retryDelay + 300, 2000);
+            if (error.response?.status === 404) {
+                console.log(`[Attempt ${i+1}] Component not ready yet, retrying...`);
+                // Wait 2 seconds before retrying
+                await new Promise(r => setTimeout(r, 2000));
+            } else {
+                throw error; // If it's a 500 or 401, stop immediately
+            }
         }
     }
+    throw new Error(`Component ${componentKey} failed to appear in SonarQube after 30s`);
 }

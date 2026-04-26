@@ -475,9 +475,10 @@ export const completeComparison = async (req, res) => {
           }
         }
 
-        // Batch create all analyzer results
-        for (const result of analyzerResultsToCreate) {
-          await tx.analyzerResult.create({ data: result });
+        if (analyzerResultsToCreate.length > 0) {
+          await tx.analyzerResult.createMany({
+            data: analyzerResultsToCreate,
+          });
         }
       }
 
@@ -489,6 +490,9 @@ export const completeComparison = async (req, res) => {
           completedAt: new Date(),
         },
       });
+    }, {
+      maxWait: 10000,
+      timeout: 30000,
     });
 
     return res.status(201).json({

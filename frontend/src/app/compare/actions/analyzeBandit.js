@@ -67,7 +67,7 @@ async function analyzeSingleCodeWithBandit(code, identifier) {
   const filePath = path.join(projectDir, "code.py");
   await fs.writeFile(filePath, code, "utf-8");
 
-  const outputPath = path.join(projectDir, "bandit-report.json");
+  const outputPath = path.join(projectDir, "bandit-report.sarif");
 
   console.log(`Running Bandit analysis for ${identifier}...`);
   console.log(`Project directory: ${projectDir}`);
@@ -80,13 +80,13 @@ async function analyzeSingleCodeWithBandit(code, identifier) {
   console.log(`Docker command: ${dockerCmd}`);
 
   // Run Bandit via Docker
-  // -f json: Output format as JSON
+  // -f sarif: Output format as SARIF
   // -o: Output file path
   // -r: Recursive (for directories)
   // -ll: Only show issues of level LOW or higher
-  const command = `${dockerCmd} run --rm -v "${dockerProjectPath}:/code" cytopia/bandit -f json -o /code/bandit-report.json /code/${path.basename(
-    filePath
-  )}`;
+// Change the image from cytopia/bandit to pysec/bandit
+// Change the image to the official ghcr.io repository
+  const command = `${dockerCmd} run --rm -v "${dockerProjectPath}:/code" python:3.11-slim sh -c "pip install --quiet bandit bandit-sarif-formatter && bandit -r /code -f sarif -o /code/bandit-report.sarif"`;
 
   console.log(`Executing: ${command}`);
 
@@ -129,7 +129,9 @@ async function analyzeSingleCodeWithBandit(code, identifier) {
     const banditResults = JSON.parse(reportContent);
 
     console.log(`Successfully parsed Bandit results for ${identifier}`);
-    console.log(`Found ${banditResults.results?.length || 0} issues`);
+    const issueCount = banditResults.runs?.[0]?.results?.length || 0;
+    console.log(`Successfully parsed Bandit SARIF results for ${identifier}`);
+    console.log(`Found ${issueCount} issues`);
 
     return banditResults;
   } catch (error) {
@@ -139,75 +141,6 @@ async function analyzeSingleCodeWithBandit(code, identifier) {
     );
     throw new Error(`Failed to parse Bandit results: ${error.message}`);
   }
-}
-
-/**
- * Transforms Bandit results into a standardized format
- * @param {Object} banditResults - Raw Bandit JSON output
- * @param {string} identifier - Analysis identifier
- * @returns {Object} Transformed results
- */
-function transformBanditResults(banditResults, identifier) {
-  const issues = banditResults.results || [];
-  const metrics = banditResults.metrics || {};
-
-  // Calculate severity counts
-  const severityCounts = {
-    HIGH: 0,
-    MEDIUM: 0,
-    LOW: 0,
-    INFO: 0,
-  };
-
-  // Calculate confidence counts
-  const confidenceCounts = {
-    HIGH: 0,
-    MEDIUM: 0,
-    LOW: 0,
-  };
-
-  issues.forEach((issue) => {
-    const severity = issue.issue_severity?.toUpperCase() || "LOW";
-    const confidence = issue.issue_confidence?.toUpperCase() || "LOW";
-
-    severityCounts[severity] = (severityCounts[severity] || 0) + 1;
-    confidenceCounts[confidence] = (confidenceCounts[confidence] || 0) + 1;
-  });
-
-  // Transform individual issues
-  const transformedIssues = issues.map((issue) => ({
-    test_id: issue.test_id, // e.g., "B101"
-    test_name: issue.test_name,
-    issue_severity: issue.issue_severity,
-    issue_confidence: issue.issue_confidence,
-    issue_text: issue.issue_text,
-    line_number: issue.line_number,
-    line_range: issue.line_range,
-    code: issue.code,
-    filename: issue.filename,
-    cwe: issue.issue_cwe
-      ? {
-        id: issue.issue_cwe.id,
-        link: issue.issue_cwe.link,
-      }
-      : null,
-    more_info: issue.more_info,
-  }));
-
-  return {
-    identifier,
-    summary: {
-      total_issues: issues.length,
-      severity_counts: severityCounts,
-      confidence_counts: confidenceCounts,
-      loc: metrics._totals?.loc || 0,
-      nosec: metrics._totals?.nosec || 0,
-      skipped_tests: metrics._totals?.skipped_tests || 0,
-    },
-    issues: transformedIssues,
-    metrics: metrics,
-    generated_at: new Date().toISOString(),
-  };
 }
 
 /**

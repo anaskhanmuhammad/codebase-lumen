@@ -10,17 +10,41 @@ import { toDockerPath, getDockerCommand } from "../utils/platformPaths.js";
 const execAsync = promisify(exec);
 const TEMP_DIR = path.join(process.cwd(), "temp_semgrep");
 
+const SEMGREP_LANGUAGE_MAP = {
+  python: { extension: "py" },
+  javascript: { extension: "js" },
+  typescript: { extension: "ts" },
+  java: { extension: "java" },
+  cpp: { extension: "cpp" },
+  csharp: { extension: "cs" },
+  go: { extension: "go" },
+  rust: { extension: "rs" },
+  ruby: { extension: "rb" },
+  php: { extension: "php" },
+  kotlin: { extension: "kt" },
+  swift: { extension: "swift" },
+  sql: { extension: "sql" },
+  bash: { extension: "sh" },
+};
+
+function resolveSemgrepLanguage(language) {
+  const normalized = String(language || "").trim().toLowerCase();
+  return (
+    SEMGREP_LANGUAGE_MAP[normalized] ||
+    SEMGREP_LANGUAGE_MAP.javascript
+  );
+}
+
 /**
  * Analyze two code samples using Semgrep.
  */
-export async function analyzeSemgrep(humanCode, llmCode, language = "js") {
+export async function analyzeSemgrep(humanCode, llmCode, language = "javascript") {
   try {
     await fs.mkdir(TEMP_DIR, { recursive: true });
     const sessionId = uuidv4();
 
-    console.log("🚀 Starting Semgrep analysis for session:", sessionId);
+    console.log("🚀 Starting Semgrep SARIF analysis for session:", sessionId);
 
-    // Run both analyses in parallel
     const [humanResult, llmResult] = await Promise.all([
       analyzeSingleCodeSemgrep(humanCode, `human-${sessionId}`, language),
       analyzeSingleCodeSemgrep(llmCode, `llm-${sessionId}`, language),
@@ -44,68 +68,73 @@ export async function analyzeSemgrep(humanCode, llmCode, language = "js") {
 }
 
 /**
- * Analyze a single code sample with Semgrep via Docker (in WSL if needed).
+ * Analyze a single code sample with Semgrep via Docker returning SARIF.
  */
 async function analyzeSingleCodeSemgrep(code, projectKey, language) {
   const projectDir = path.join(TEMP_DIR, projectKey);
   await fs.mkdir(projectDir, { recursive: true });
 
-  const filePath = path.join(projectDir, `code.${language}`);
+  const { extension } = resolveSemgrepLanguage(language);
+  const filePath = path.join(projectDir, `code.${extension}`);
   await fs.writeFile(filePath, code, "utf-8");
 
-  console.log(`\n🔎 Running Semgrep analysis for ${projectKey}...`);
-  console.log(`Project directory: ${projectDir}`);
-
-  // Convert to Docker-compatible path (works on Ubuntu, WSL, and Docker Desktop)
   const dockerPath = toDockerPath(projectDir);
   const dockerCmd = getDockerCommand();
 
-  console.log(`Docker path: ${dockerPath}`);
-  console.log(`Docker command: ${dockerCmd}`);
-
-  // Semgrep Docker command - auto config covers all languages
-  const command = `${dockerCmd} run --rm -v "${dockerPath}:/src" semgrep/semgrep semgrep --config=auto --json --no-git-ignore /src/code.${language}`;
-  console.log(`Executing: ${command}\n`);
+  // --- CHANGE: Changed --json to --sarif ---
+  const command = `${dockerCmd} run --rm -v "${dockerPath}:/src" semgrep/semgrep semgrep --config=auto --sarif --no-git-ignore /src/code.${extension}`;
+  
+  console.log(`🔎 Executing Semgrep SARIF: ${command}\n`);
 
   try {
     const { stdout } = await execAsync(command, {
-      maxBuffer: 1024 * 1024 * 10, // 10 MB buffer
+      maxBuffer: 1024 * 1024 * 10,
     });
 
     const result = JSON.parse(stdout);
-    const issueCount = result.results?.length || 0;
 
-    console.log(`✅ Semgrep found ${issueCount} issue(s) for ${projectKey}`);
+    // --- CHANGE: SARIF structure access ---
+    // SARIF results are inside runs[0].results
+    const findings = result.runs?.[0]?.results || [];
+    // SARIF rule metadata is inside runs[0].tool.driver.rules
+    const rulesMetadata = result.runs?.[0]?.tool?.driver?.rules || [];
 
-    if (issueCount > 0) {
-      console.log("=== Findings Summary ===");
-      result.results.forEach((finding, idx) => {
+    console.log(`✅ Semgrep found ${findings.length} issue(s) for ${projectKey}`);
+
+    if (findings.length > 0) {
+      console.log("=== SARIF Findings Summary ===");
+      findings.forEach((finding, idx) => {
+        // Find the rule definition to get CWE/Category metadata
+        const ruleId = finding.ruleId;
+        const ruleDef = rulesMetadata.find(r => r.id === ruleId);
+        
+        // SARIF uses locations[0].physicalLocation.region
+        const location = finding.locations?.[0]?.physicalLocation;
+        const region = location?.region;
+
         console.log(`\n#${idx + 1}`);
-        console.log(`Rule: ${finding.check_id}`);
-        console.log(`Severity: ${finding.extra?.severity || "N/A"}`);
-        console.log(`Message: ${finding.extra?.message}`);
-        console.log(`File: ${finding.path}`);
-        console.log(
-          `Location: Line ${finding.start?.line}, Col ${finding.start?.col}`
-        );
+        console.log(`Rule ID: ${ruleId}`);
+        console.log(`Level: ${finding.level || "warning"}`); // error, warning, or note
+        console.log(`Message: ${finding.message?.text}`);
+        console.log(`File: ${location?.artifactLocation?.uri}`);
+        console.log(`Location: Line ${region?.startLine}, Col ${region?.startColumn}`);
 
-        if (finding.extra?.metadata?.cwe) {
-          console.log(`CWE: ${finding.extra.metadata.cwe}`);
-        }
-        if (finding.extra?.metadata?.owasp) {
-          console.log(`OWASP: ${finding.extra.metadata.owasp}`);
-        }
+        // Extract metadata from Rule Definition tags/properties
+        const tags = ruleDef?.properties?.tags || [];
+        const cwe = tags.find(t => t.startsWith("CWE-"));
+        const owasp = tags.find(t => t.toLowerCase().includes("owasp"));
 
-        console.log(
-          `\nCode Snippet:\n${finding.extra?.lines || "(no snippet available)"}`
-        );
+        if (cwe) console.log(`CWE: ${cwe}`);
+        if (owasp) console.log(`OWASP: ${owasp}`);
+
+        console.log(`Code Snippet:\n${region?.snippet?.text || "(no snippet available)"}`);
       });
       console.log("\n=========================\n");
     }
 
-    // Save full JSON output to file for reference
+    // Save as .sarif file
     await fs.writeFile(
-      path.join(projectDir, "semgrep-output.json"),
+      path.join(projectDir, "semgrep-output.sarif"),
       JSON.stringify(result, null, 2),
       "utf-8"
     );
@@ -116,106 +145,12 @@ async function analyzeSingleCodeSemgrep(code, projectKey, language) {
 
     if (execError.stdout) {
       try {
-        const result = JSON.parse(execError.stdout);
-        return result;
+        return JSON.parse(execError.stdout);
       } catch (parseError) {
-        console.error("Failed to parse Semgrep JSON output:", parseError);
+        console.error("Failed to parse Semgrep SARIF output:", parseError);
       }
     }
 
-    throw new Error(
-      `Semgrep analysis failed: ${execError.stderr || execError.message}`
-    );
+    throw new Error(`Semgrep analysis failed: ${execError.stderr || execError.message}`);
   }
-}
-
-/**
- * Compute aggregated metrics from Semgrep results.
- */
-function calculateMetrics(semgrepResult) {
-  const findings = semgrepResult.results || [];
-
-  const metrics = {
-    totalIssues: findings.length,
-    bySeverity: { ERROR: 0, WARNING: 0, INFO: 0 },
-    byCategory: {
-      security: 0,
-      "best-practice": 0,
-      correctness: 0,
-      performance: 0,
-      maintainability: 0,
-      other: 0,
-    },
-    uniqueRules: new Set(),
-    filesScanned: new Set(),
-  };
-
-  for (const finding of findings) {
-    const severity = finding.extra?.severity?.toUpperCase() || "INFO";
-    if (metrics.bySeverity[severity] !== undefined)
-      metrics.bySeverity[severity]++;
-
-    const categories = finding.extra?.metadata?.category || [];
-    const categoryArray = Array.isArray(categories) ? categories : [categories];
-    let categorized = false;
-
-    for (const cat of categoryArray) {
-      const catLower = String(cat).toLowerCase();
-      if (catLower.includes("security")) {
-        metrics.byCategory.security++;
-        categorized = true;
-      } else if (
-        catLower.includes("best-practice") ||
-        catLower.includes("best_practice")
-      ) {
-        metrics.byCategory["best-practice"]++;
-        categorized = true;
-      } else if (catLower.includes("correctness")) {
-        metrics.byCategory.correctness++;
-        categorized = true;
-      } else if (catLower.includes("performance")) {
-        metrics.byCategory.performance++;
-        categorized = true;
-      } else if (catLower.includes("maintainability")) {
-        metrics.byCategory.maintainability++;
-        categorized = true;
-      }
-    }
-
-    if (!categorized) metrics.byCategory.other++;
-
-    if (finding.check_id) metrics.uniqueRules.add(finding.check_id);
-    if (finding.path) metrics.filesScanned.add(finding.path);
-  }
-
-  metrics.uniqueRulesCount = metrics.uniqueRules.size;
-  metrics.filesScannedCount = metrics.filesScanned.size;
-  delete metrics.uniqueRules;
-  delete metrics.filesScanned;
-
-  return metrics;
-}
-
-/**
- * Format a finding for front-end display.
- */
-export async function formatFindingForDisplay(finding) {
-  return {
-    ruleId: finding.check_id,
-    severity: finding.extra?.severity || "INFO",
-    message: finding.extra?.message || finding.check_id,
-    line: finding.start?.line,
-    column: finding.start?.col,
-    endLine: finding.end?.line,
-    endColumn: finding.end?.col,
-    code: finding.extra?.lines,
-    fix: finding.extra?.fix,
-    metadata: {
-      category: finding.extra?.metadata?.category,
-      confidence: finding.extra?.metadata?.confidence,
-      cwe: finding.extra?.metadata?.cwe,
-      owasp: finding.extra?.metadata?.owasp,
-      references: finding.extra?.metadata?.references,
-    },
-  };
 }

@@ -19,11 +19,26 @@ function analyzerLabel(name) {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+function unwrapSarifPayload(payload) {
+  if (!payload) return null;
+  if (payload.runs || payload.results) return payload;
+  if (payload.analysis) return payload.analysis;
+  if (payload.data?.analysis) return payload.data.analysis;
+  if (payload.data?.runs || payload.data?.results) return payload.data;
+  return payload.data || payload;
+}
+
+function getSarifResults(payload) {
+  const sarifPayload = unwrapSarifPayload(payload);
+  return sarifPayload?.runs?.[0]?.results || sarifPayload?.results || [];
+}
+
 function findingsCount(analyzerName, payload) {
   if (!payload) return 0;
-  if (analyzerName === "semgrep") return (payload.results || []).length;
-  if (analyzerName === "bandit") return (payload.results || []).length;
-  if (analyzerName === "sonar") return (payload.issuesResponse?.issues || []).length;
+  if (analyzerName === "semgrep") return getSarifResults(payload).length;
+  if (analyzerName === "bandit") return getSarifResults(payload).length;
+  if (analyzerName === "sonar") return getSarifResults(payload).length;
+  if (analyzerName === "aiServer") return getSarifResults(payload).length;
   if (Array.isArray(payload.issues)) return payload.issues.length;
   if (Array.isArray(payload.findings)) return payload.findings.length;
   return 0;
@@ -34,24 +49,32 @@ function severityCounts(analyzerName, payload) {
   if (!payload) return counts;
 
   if (analyzerName === "semgrep") {
-    for (const finding of payload.results || []) {
-      const sev = finding?.extra?.severity || "UNSPECIFIED";
+    for (const finding of getSarifResults(payload)) {
+      const sev = finding?.level || finding?.extra?.severity || "UNSPECIFIED";
       counts[sev] = (counts[sev] || 0) + 1;
     }
     return counts;
   }
 
   if (analyzerName === "bandit") {
-    for (const issue of payload.results || []) {
-      const sev = issue?.issue_severity || "UNSPECIFIED";
+    for (const issue of getSarifResults(payload)) {
+      const sev = issue?.level || issue?.issue_severity || "UNSPECIFIED";
       counts[sev] = (counts[sev] || 0) + 1;
     }
     return counts;
   }
 
   if (analyzerName === "sonar") {
-    for (const issue of payload.issuesResponse?.issues || []) {
-      const sev = issue?.severity || "UNSPECIFIED";
+    for (const issue of getSarifResults(payload)) {
+      const sev = issue?.level || issue?.severity || "UNSPECIFIED";
+      counts[sev] = (counts[sev] || 0) + 1;
+    }
+    return counts;
+  }
+
+  if (analyzerName === "aiServer") {
+    for (const issue of getSarifResults(payload)) {
+      const sev = issue?.level || issue?.severity || "UNSPECIFIED";
       counts[sev] = (counts[sev] || 0) + 1;
     }
     return counts;

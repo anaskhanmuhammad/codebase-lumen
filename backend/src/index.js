@@ -8,13 +8,15 @@ import apiKeyRouter from "./routes/apiKey.route.js";
 
 const app = express();
 const PORT = process.env.PORT;
+const REQUEST_BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || "25mb";
 
 // IMPORTANT: Webhook route MUST come BEFORE other middleware
 app.use("/webhooks", webhookRouter);
 
 // Now add other middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: REQUEST_BODY_LIMIT }));
 app.use(clerkMiddleware());
 
 // Routes
@@ -34,6 +36,15 @@ app.listen(PORT, () => {
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error("Unhandled Error:", err.stack);
+
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({
+      status: "error",
+      message: "Request payload is too large",
+      limit: REQUEST_BODY_LIMIT,
+    });
+  }
+
   res.status(500).json({
     status: "error",
     message: "Internal Server Error",

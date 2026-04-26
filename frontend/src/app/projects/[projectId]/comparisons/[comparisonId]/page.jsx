@@ -623,12 +623,14 @@ export default function ComparisonPage() {
         return;
       }
 
+      const detectedLanguageKey = languageValidation.detections?.[0]?.language || "javascript";
+
       const rawByCode = {};
       const resultItems = [];
 
       for (const codeItem of codeItems) {
         const settled = await Promise.allSettled(
-          analyzers.map((a) => a.fn(codeItem.code, codeItem.code))
+          analyzers.map((a) => a.fn(codeItem.code, codeItem.code, detectedLanguageKey))
         );
 
         const analyzerPayloads = {
