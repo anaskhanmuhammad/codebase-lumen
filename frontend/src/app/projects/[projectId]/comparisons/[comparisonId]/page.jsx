@@ -233,6 +233,7 @@ export default function ComparisonPage() {
                     rawByCode[codeKey] = {
                       codeKey,
                       label,
+                      code: sample.codeContent || "",
                       analyzers,
                     };
 

@@ -159,6 +159,7 @@ export default function Compare() {
         human: {
           codeKey: "human",
           label: "Human Code",
+          code: humanCode,
           analyzers: {
             bandit: combinedResults.bandit?.human || null,
             semgrep: combinedResults.semgrep?.human || null,
@@ -169,6 +170,7 @@ export default function Compare() {
         llm: {
           codeKey: "llm",
           label: "LLM Code",
+          code: llmCode,
           analyzers: {
             bandit: combinedResults.bandit?.llm || null,
             semgrep: combinedResults.semgrep?.llm || null,
@@ -324,7 +326,7 @@ export default function Compare() {
                       onClick={() => openRawModal(resultItem.codeKey)}
                       disabled={!hasAnyRawResults || availableAnalyzers.length === 0}
                     >
-                      View All Raw Outputs
+                      Open Issue Dashboard
                     </Button>
                   </div>
                 );

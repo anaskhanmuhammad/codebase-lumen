@@ -157,7 +157,7 @@ export async function analyzeCode(humanCode, llmCode, language = "javascript") {
     );
 
     // Run combined analysis
-    await runSonarAnalysis(projectDir, projectKey);
+    await runSonarAnalysis(projectDir, projectKey, fileExtension);
 
     // Fetch results for each file
     // Component key format in SonarQube is "projectKey:fileName"
@@ -198,7 +198,7 @@ export async function analyzeCode(humanCode, llmCode, language = "javascript") {
   }
 }
 
-async function runSonarAnalysis(projectDir, projectKey) {
+async function runSonarAnalysis(projectDir, projectKey, fileExtension) {
   console.log(`Running SonarQube scanner for ${projectKey}...`);
 
   const cachePath = path.resolve(process.cwd(), "../.cache/sonarqube");
@@ -209,8 +209,8 @@ async function runSonarAnalysis(projectDir, projectKey) {
   // Enforce 2GB memory limit
   process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
 
-  // Capture the task ID from scanner output for status checking
-  let taskId = null;
+  const scannedFiles = ["human", "llm"];
+  const sonarInclusions = scannedFiles.map((name) => `${name}.${fileExtension}`).join(",");
 
   // Use NPM sonarqube-scanner
   await new Promise((resolve, reject) => {
@@ -223,20 +223,47 @@ async function runSonarAnalysis(projectDir, projectKey) {
           "sonar.projectName": projectKey,
           "sonar.projectBaseDir": projectDir,
           "sonar.sources": ".",
+          "sonar.inclusions": sonarInclusions,
+          "sonar.filesize.limit": "100",
+          "sonar.javascript.maxFileSize": "100000",
+          "sonar.typescript.maxFileSize": "100000",
           "sonar.scm.disabled": "true",
         },
       },
       async (err) => {
         if (err) return reject(err);
 
-        // IMPORTANT: The scanner finishes, but we need to give the server
-        // a moment to even recognize the task exists before polling.
-        console.log("Scanner finished. Waiting for Server Compute Engine...");
-        await new Promise((r) => setTimeout(r, 2000));
+        console.log("Scanner finished. Reading SonarQube task metadata...");
+
+        const taskId = await readSonarTaskId(projectDir);
+        if (!taskId) {
+          throw new Error("SonarQube did not produce a ceTaskId in report-task.txt");
+        }
+
+        await waitForTask(taskId);
         resolve();
       },
     );
   });
+}
+
+async function readSonarTaskId(projectDir) {
+  const reportTaskPath = path.join(projectDir, ".scannerwork", "report-task.txt");
+
+  try {
+    const content = await fs.readFile(reportTaskPath, "utf-8");
+    const match = content.match(/^ceTaskId=(.+)$/m);
+    if (match?.[1]) {
+      console.log(`SonarQube task id: ${match[1].trim()}`);
+      return match[1].trim();
+    }
+
+    console.warn(`report-task.txt found but ceTaskId missing at ${reportTaskPath}`);
+    return null;
+  } catch (error) {
+    console.error(`Failed to read SonarQube report-task.txt at ${reportTaskPath}:`, error.message);
+    return null;
+  }
 }
 
 async function waitForTask(taskId) {
