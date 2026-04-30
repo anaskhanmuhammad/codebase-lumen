@@ -301,9 +301,9 @@ export default function ApiKeysPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">API Keys</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          {/* <p className="text-sm text-muted-foreground mt-1">
             Connect provider keys securely. Keys are encrypted at rest and never shown in plaintext after save.
-          </p>
+          </p> */}
         </div>
         <Badge variant="outline" className="text-xs">
           Active keys: {activeCount}
@@ -536,12 +536,12 @@ export default function ApiKeysPage() {
         )}
       </div>
 
-      <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+      {/* <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
         <CheckCircle2 className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-slate-700 dark:text-slate-300 text-sm">
           Standard behavior: keys are linked to providers, not specific models. Model access still depends on provider account permissions.
         </AlertDescription>
-      </Alert>
+      </Alert> */}
     </div>
   );
 }

@@ -238,3 +238,127 @@ export const getProjectById = async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch project" });
   }
 };
+
+/**
+ * GET /projects/benchmarks/llm-leaderboard-dataset
+ * Returns the raw dataset needed for real-time benchmarking.
+ * Includes completed comparison LLM code samples with analyzer raw outputs.
+ * NOTE: This does not store or persist any benchmark scores.
+ */
+export const getLlmLeaderboardDataset = async (req, res) => {
+  try {
+    const clerkUserId = req.auth()?.userId;
+    if (!clerkUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { clerkUserId },
+      select: { userId: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found in database" });
+    }
+
+    const comparisons = await prisma.comparison.findMany({
+      where: {
+        status: "Completed",
+        project: {
+          userId: user.userId,
+        },
+      },
+      select: {
+        comparisonId: true,
+        languageId: true,
+        language: {
+          select: {
+            languageName: true,
+          },
+        },
+      },
+    });
+
+    const comparisonIds = comparisons.map((c) => c.comparisonId);
+    if (comparisonIds.length === 0) {
+      return res.status(200).json({ samples: [] });
+    }
+
+    const samplesRaw = await prisma.codeSample.findMany({
+      where: {
+        comparisonId: { in: comparisonIds },
+        codeType: "llm",
+        isOriginal: true,
+        llmId: { not: null },
+      },
+      select: {
+        codeSampleId: true,
+        comparisonId: true,
+        createdAt: true,
+        llm: {
+          select: {
+            llmId: true,
+            llmName: true,
+            provider: {
+              select: {
+                providerName: true,
+              },
+            },
+            modelIdentifier: true,
+          },
+        },
+        comparison: {
+          select: {
+            languageId: true,
+            language: {
+              select: {
+                languageName: true,
+              },
+            },
+          },
+        },
+        analyzerResults: {
+          select: {
+            analyzerType: true,
+            rawOutput: true,
+            executedAt: true,
+          },
+          orderBy: {
+            analyzerType: "asc",
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    const samples = samplesRaw.map((sample) => ({
+      codeSampleId: sample.codeSampleId,
+      comparisonId: sample.comparisonId,
+      createdAt: sample.createdAt,
+      language: {
+        languageId: sample.comparison?.languageId || null,
+        languageName: sample.comparison?.language?.languageName || null,
+      },
+      llm: sample.llm
+        ? {
+            llmId: sample.llm.llmId,
+            llmName: sample.llm.llmName,
+            provider: sample.llm.provider?.providerName || null,
+            modelIdentifier: sample.llm.modelIdentifier,
+          }
+        : null,
+      analyzerResults: (sample.analyzerResults || []).map((r) => ({
+        analyzerType: r.analyzerType,
+        rawOutput: r.rawOutput,
+        executedAt: r.executedAt,
+      })),
+    }));
+
+    return res.status(200).json({ samples });
+  } catch (error) {
+    console.error("Error fetching LLM leaderboard dataset:", error);
+    return res.status(500).json({ error: "Failed to fetch benchmark dataset" });
+  }
+};

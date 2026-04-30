@@ -7,6 +7,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import {
+  collectTags,
+  getIssueCategory,
+  getIssueSeverity,
+  getSarifResults,
+  getSarifRuleMap,
+  isSecurityIssue,
+  normalizeSeverity,
+  unwrapSarifPayload,
+} from "@/lib/sarif";
+
+import BanditResultsView from "./BanditResultsView";
+import SemgrepResultsView from "./SemgrepResultsView";
+import SonarResultsView from "./SonarResultsView";
+
 const ANALYZERS = ["semgrep", "sonar", "bandit", "aiServer"];
 
 const SEVERITY_RANK = {
@@ -31,29 +46,6 @@ function analyzerLabel(name) {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-function unwrapSarifPayload(payload) {
-  if (!payload) return null;
-  if (payload.runs || payload.results) return payload;
-  if (payload.analysis) return payload.analysis;
-  if (payload.data?.analysis) return payload.data.analysis;
-  if (payload.data?.runs || payload.data?.results) return payload.data;
-  return payload.data || payload;
-}
-
-function getSarifResults(payload) {
-  const sarifPayload = unwrapSarifPayload(payload);
-  return sarifPayload?.runs?.[0]?.results || sarifPayload?.results || [];
-}
-
-function getSarifRules(payload) {
-  const sarifPayload = unwrapSarifPayload(payload);
-  return sarifPayload?.runs?.[0]?.tool?.driver?.rules || [];
-}
-
-function getSarifRuleMap(payload) {
-  return new Map(getSarifRules(payload).map((rule) => [rule.id, rule]));
-}
-
 function getCodeSnippet(code, line, context = 1) {
   if (!code || !line) return null;
   const rows = String(code).split(/\r?\n/);
@@ -62,14 +54,6 @@ function getCodeSnippet(code, line, context = 1) {
   const end = Math.min(rows.length - 1, idx + context);
   const slice = rows.slice(start, end + 1);
   return { lines: slice, startLine: start + 1, highlightIndex: idx - start };
-}
-
-function normalizeSeverity(severity) {
-  return String(severity || "unspecified").trim().toLowerCase();
-}
-
-function getIssueSeverity(issue) {
-  return normalizeSeverity(issue?.level || issue?.severity || issue?.properties?.severity);
 }
 
 function getIssueMessage(issue) {
@@ -89,55 +73,6 @@ function getPrimaryLocation(issue) {
   };
 }
 
-function collectTags(issue, ruleMap) {
-  const tags = [];
-  const issueTags = issue?.properties?.tags;
-  const ruleTags = ruleMap.get(issue?.ruleId)?.properties?.tags || ruleMap.get(issue?.ruleId)?.tags;
-
-  if (Array.isArray(issueTags)) tags.push(...issueTags);
-  if (Array.isArray(ruleTags)) tags.push(...ruleTags);
-  if (typeof issue?.properties?.category === "string") tags.push(issue.properties.category);
-  if (typeof issue?.properties?.kind === "string") tags.push(issue.properties.kind);
-
-  return tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean);
-}
-
-function isSecurityIssue(issue, analyzerName, ruleMap) {
-  if (analyzerName === "bandit") return true;
-
-  const tags = collectTags(issue, ruleMap);
-  const securityMarkers = [
-    "security",
-    "secure",
-    "cwe",
-    "owasp",
-    "vulnerability",
-    "vulnerabilities",
-    "vuln",
-    "injection",
-    "xss",
-    "csrf",
-    "ssrf",
-    "rce",
-    "auth",
-    "crypto",
-    "cryptography",
-    "sql",
-    "sqli",
-  ];
-
-  return tags.some((tag) => securityMarkers.some((marker) => tag.includes(marker)));
-}
-
-function getIssueCategory(issue, analyzerName, ruleMap) {
-  if (issue?.properties?.category) {
-    const category = String(issue.properties.category).trim().toLowerCase();
-    if (category.includes("security")) return "security";
-    if (category.includes("quality")) return "quality";
-  }
-
-  return isSecurityIssue(issue, analyzerName, ruleMap) ? "security" : "quality";
-}
 
 function getIssueFingerprint(issue) {
   const location = getPrimaryLocation(issue);
@@ -540,9 +475,25 @@ export default function AnalyzerRawModal({ isOpen, onClose, codeEntry }) {
         </div>
 
         <div className="overflow-y-auto p-6">
-          <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
+          {selectedAnalyzer === "bandit" ? (
+            <BanditResultsView
+              payload={dashboard.analyzerPayloads.find((a) => a.name === "bandit")?.payload}
+              code={codeEntry?.code}
+            />
+          ) : selectedAnalyzer === "semgrep" ? (
+            <SemgrepResultsView
+              payload={dashboard.analyzerPayloads.find((a) => a.name === "semgrep")?.payload}
+              code={codeEntry?.code}
+            />
+          ) : selectedAnalyzer === "sonar" ? (
+            <SonarResultsView
+              payload={dashboard.analyzerPayloads.find((a) => a.name === "sonar")?.payload}
+              code={codeEntry?.code}
+            />
+          ) : (
+            <Tabs defaultValue="overview" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="issues">Issues</TabsTrigger>
               <TabsTrigger value="raw">Raw Payloads</TabsTrigger>
             </TabsList>
@@ -709,6 +660,7 @@ export default function AnalyzerRawModal({ isOpen, onClose, codeEntry }) {
               )}
             </TabsContent>
           </Tabs>
+          )}
 
           <div className="mt-6 flex justify-end">
             <Button variant="outline" onClick={onClose}>

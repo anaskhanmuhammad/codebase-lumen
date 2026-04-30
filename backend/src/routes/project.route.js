@@ -6,6 +6,7 @@ import {
   getAvailableLlms,
   createProject,
   getProjectById,
+  getLlmLeaderboardDataset,
 } from "../controllers/project.controller.js";
 import {
   createComparison,
@@ -20,6 +21,7 @@ const router = express.Router();
 
 router.get("/", requireAuth(), getProjects);
 router.get("/llms", getAvailableLlms);
+router.get("/benchmarks/llm-leaderboard-dataset", requireAuth(), getLlmLeaderboardDataset);
 router.get("/languages", requireAuth(), getProjectLanguages);
 router.post("/", requireAuth(), createProject);
 router.get("/:projectId", requireAuth(), getProjectById);

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Loader2, ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Trash2, MessageCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, XCircle } from "lucide-react";
 
@@ -787,12 +787,12 @@ export default function ComparisonPage() {
           </div>
         </div>
 
-        <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+        {/* <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
           <AlertCircle className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-sm text-slate-700 dark:text-slate-300">
             Enter each code sample in horizontal cards. Add LLMs to the right and scroll sideways when needed.
           </AlertDescription>
-        </Alert>
+        </Alert> */}
 
         {!isCompletedComparison && (
           <Alert className={languageValidation.isValid ? "border-green-200 bg-green-50 dark:bg-green-950/20" : "border-amber-200 bg-amber-50 dark:bg-amber-950/20"}>
@@ -909,9 +909,9 @@ export default function ComparisonPage() {
           <div className="rounded-xl border bg-card p-4 space-y-4">
             <div>
               <h3 className="text-base font-semibold">Generate LLM Code From Prompt</h3>
-              <p className="text-sm text-muted-foreground">
+              {/* <p className="text-sm text-muted-foreground">
                 Select one or more LLM cards and generate code from a single prompt.
-              </p>
+              </p> */}
             </div>
 
             <div className="space-y-2">
@@ -927,7 +927,7 @@ export default function ComparisonPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Select LLM Targets</Label>
+              {/* <Label>Select LLM Targets</Label> */}
               <div className="grid gap-2 md:grid-cols-2">
                 {configuredLlmCards.map((card) => (
                   <Label
@@ -1002,12 +1002,12 @@ export default function ComparisonPage() {
           <div className="mt-8 space-y-6">
             <h2 className="text-xl font-bold">Analysis Results</h2>
 
-            <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+            {/* <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
               <AlertCircle className="h-4 w-4 text-blue-600" />
               <AlertDescription className="text-sm text-slate-700 dark:text-slate-300">
                 Results are code-wise. Open a code card to view all selected analyzers in one raw output modal.
               </AlertDescription>
-            </Alert>
+            </Alert> */}
 
             <div className="overflow-x-auto pb-2">
               <div className="flex min-w-max items-stretch gap-4">
@@ -1047,6 +1047,12 @@ export default function ComparisonPage() {
           onClose={() => setRawResultsModalState((prev) => ({ ...prev, isOpen: false }))}
           codeEntry={activeCodeEntry}
         />
+      </div>
+
+      <div className="fixed bottom-6 right-6 z-50">
+        <Button type="button" size="icon" aria-label="Open chat">
+          <MessageCircle className="h-5 w-5" />
+        </Button>
       </div>
     </div>
   );
