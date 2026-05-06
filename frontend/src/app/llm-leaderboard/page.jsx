@@ -1,10 +1,8 @@
-'use client';
-
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertCircle, Info, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronDown, Info, Loader2 } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -29,6 +27,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import { aggregateByLlm, buildSparklinePoints, formatScore } from "@/lib/benchmarking";
 
@@ -153,89 +159,28 @@ function RulesSheet() {
           </SheetDescription>
         </SheetHeader>
 
-        <div className="px-4 pb-6 space-y-4 text-sm">
+        <div className="px-4 pb-6 space-y-4 text-sm mt-4">
           <div className="space-y-2">
             <div className="font-semibold">1) Findings input</div>
-            {/* <div className="text-muted-foreground">
-              We use each code sample’s persisted analyzer raw outputs and read SARIF-like results from
-              <span className="font-mono"> runs[0].results</span> (or the closest equivalent shape).
-              We do not persist benchmark scores; they are computed in real-time each run.
-            </div> */}
           </div>
 
           <div className="space-y-2">
-            <div className="font-semibold">2) Security vs Quality classification (same as the analyzer viewer)</div>
-            <div className="text-muted-foreground">For each finding:</div>
+            <div className="font-semibold">2) Security vs Quality classification</div>
             <ul className="list-disc pl-5 text-muted-foreground space-y-1">
               <li>If analyzer is Bandit → category = Security.</li>
-              <li>If <span className="font-mono">result.properties.category</span> contains “security” → Security.</li>
+              <li>If result.properties.category contains “security” → Security.</li>
               <li>If it contains “quality” → Quality.</li>
-              <li>
-                Otherwise, we look at finding + rule tags for security markers (e.g. “cwe”, “owasp”, “xss”, “csrf”,
-                “sqli”, “rce”, “crypto”). If any match → Security; else → Quality.
-              </li>
+              <li>Otherwise, we look at tags (e.g., “cwe”, “xss”, “sqli”). If match → Security; else → Quality.</li>
             </ul>
           </div>
 
           <div className="space-y-2">
             <div className="font-semibold">3) Severity → penalty</div>
-            <div className="text-muted-foreground">Each finding contributes a penalty based on its severity:</div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border p-2">
-                <div className="text-xs text-muted-foreground">Error</div>
-                <div className="font-semibold">10</div>
-              </div>
-              <div className="rounded-lg border p-2">
-                <div className="text-xs text-muted-foreground">Warning</div>
-                <div className="font-semibold">6</div>
-              </div>
-              <div className="rounded-lg border p-2">
-                <div className="text-xs text-muted-foreground">Note</div>
-                <div className="font-semibold">3</div>
-              </div>
-              <div className="rounded-lg border p-2">
-                <div className="text-xs text-muted-foreground">Unspecified / other</div>
-                <div className="font-semibold">1</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-semibold">4) Per-sample scores</div>
-            <div className="text-muted-foreground">
-              For a given code sample <span className="font-mono">j</span>:
-            </div>
-            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
-              <li>
-                SecurityPenalty<sub>j</sub> = Σ penalties of Security findings.
-              </li>
-              <li>
-                QualityPenalty<sub>j</sub> = Σ penalties of Quality findings.
-              </li>
-              <li>
-                SecurityScore<sub>j</sub> = max(0, 100 − SecurityPenalty<sub>j</sub>).
-              </li>
-              <li>
-                QualityScore<sub>j</sub> = max(0, 100 − QualityPenalty<sub>j</sub>).
-              </li>
-              <li>
-                BothScore<sub>j</sub> = (SecurityScore<sub>j</sub> + QualityScore<sub>j</sub>) / 2.
-              </li>
-            </ul>
-          </div>
-
-          <div className="space-y-2">
-            <div className="font-semibold">5) Per-LLM averages (benchmarks)</div>
-            <div className="text-muted-foreground">
-              For an LLM with <span className="font-mono">N</span> samples:
-            </div>
-            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
-              <li>AvgSecurity = (1/N) · Σ SecurityScore<sub>j</sub></li>
-              <li>AvgQuality = (1/N) · Σ QualityScore<sub>j</sub></li>
-              <li>BothBenchmark = (AvgSecurity + AvgQuality) / 2</li>
-            </ul>
-            <div className="text-muted-foreground">
-              No explicit analyzer weights are applied; all findings contribute via the penalty table.
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="rounded-lg border p-2 text-center">Error: <span className="font-semibold">10</span></div>
+              <div className="rounded-lg border p-2 text-center">Warning: <span className="font-semibold">6</span></div>
+              <div className="rounded-lg border p-2 text-center">Note: <span className="font-semibold">3</span></div>
+              <div className="rounded-lg border p-2 text-center">Other: <span className="font-semibold">1</span></div>
             </div>
           </div>
         </div>
@@ -271,7 +216,7 @@ function LeaderboardTable({ rows, mode }) {
             const score =
               mode === "security" ? row.avgSecurity : mode === "quality" ? row.avgQuality : row.bothScore;
             const variant = mode === "both" ? "both" : mode;
-            const series = (row.scoresTimeline || []).map((pt) => (mode === "security" ? pt.security : mode === "quality" ? pt.quality : pt.both));
+            const series = (row.scoresTimeline ||[]).map((pt) => (mode === "security" ? pt.security : mode === "quality" ? pt.quality : pt.both));
 
             return (
               <tr key={row.llmId} className="border-b hover:bg-muted/40 transition-colors">
@@ -312,39 +257,70 @@ export default function LLMLeaderboard() {
   const { getToken } = useAuth();
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const[error, setError] = useState("");
   const [samples, setSamples] = useState(null);
+
+  // Benchmarking State Features
+  const [mode, setMode] = useState("global"); // 'global' | 'local'
+  const [availableProjects, setAvailableProjects] = useState([]);
+  const [selectedProjectIds, setSelectedProjectIds] = useState([]);
 
   const runBenchmark = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const token = await getToken();
-      const res = await fetch(`${BACKEND_URL}/projects/benchmarks/llm-leaderboard-dataset`, {
+      
+      const queryParams = new URLSearchParams({ mode });
+      if (mode === "local" && selectedProjectIds.length > 0) {
+        queryParams.append("projectIds", selectedProjectIds.join(","));
+      }
+
+      const res = await fetch(`${BACKEND_URL}/projects/benchmarks/llm-leaderboard-dataset?${queryParams.toString()}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
       const data = await res.json();
+      
       if (!res.ok) {
         setError(data?.error || "Failed to fetch benchmark dataset.");
         setSamples([]);
         return;
       }
 
-      setSamples(Array.isArray(data?.samples) ? data.samples : []);
+      setSamples(Array.isArray(data?.samples) ? data.samples :[]);
+      
+      // Populate projects array if returned
+      if (data?.projects) {
+        setAvailableProjects(data.projects);
+        // On very first load, pre-select all projects automatically
+        setSelectedProjectIds((prev) => 
+          prev.length === 0 ? data.projects.map(p => p.projectId) : prev
+        );
+      }
     } catch {
       setError("Network error. Please try again.");
       setSamples([]);
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+  }, [getToken, mode, selectedProjectIds]);
+
+  // Initial auto-fetch & refetch when mode toggles
+  const runBenchmarkRef = useRef(runBenchmark);
+  useEffect(() => {
+    runBenchmarkRef.current = runBenchmark;
+  }, [runBenchmark]);
+
+  useEffect(() => {
+    runBenchmarkRef.current();
+  }, [mode]); // Triggers when user switches between Global/Local
 
   const rows = useMemo(() => {
     if (!samples) return [];
     return aggregateByLlm(samples);
-  }, [samples]);
+  },[samples]);
 
   const totals = useMemo(() => {
     const totalSamples = Array.isArray(samples) ? samples.length : 0;
@@ -356,18 +332,51 @@ export default function LLMLeaderboard() {
 
   return (
     <div className="container mx-auto max-w-7xl p-6 space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">LLM Benchmarks</h1>
-            {/* <Badge variant="outline">Real-time</Badge> */}
-          </div>
-          {/* <p className="text-sm text-muted-foreground">
-            Security / Quality / Both benchmarks computed on demand using analyzer results.
-          </p> */}
+      
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">LLM Benchmarks</h1>
+          
+          <Tabs value={mode} onValueChange={setMode} className="w-[300px]">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="global">Global</TabsTrigger>
+              <TabsTrigger value="local">Local</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {mode === "local" && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  Projects ({selectedProjectIds.length}) <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56 max-h-[300px] overflow-y-auto">
+                <DropdownMenuLabel>Filter by Project</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {availableProjects.length === 0 ? (
+                  <div className="p-2 text-xs text-muted-foreground text-center">No projects found</div>
+                ) : (
+                  availableProjects.map((p) => (
+                    <DropdownMenuCheckboxItem
+                      key={p.projectId}
+                      checked={selectedProjectIds.includes(p.projectId)}
+                      onCheckedChange={(checked) => {
+                        setSelectedProjectIds((prev) =>
+                          checked ? [...prev, p.projectId] : prev.filter((id) => id !== p.projectId)
+                        );
+                      }}
+                    >
+                      <span className="truncate">{p.projectName}</span>
+                    </DropdownMenuCheckboxItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           <RulesSheet />
           <Button onClick={runBenchmark} disabled={loading} className="gap-2">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertCircle className="h-4 w-4" />}
@@ -375,6 +384,15 @@ export default function LLMLeaderboard() {
           </Button>
         </div>
       </div>
+
+      {mode === "local" && (
+         <Alert className="bg-muted/50">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              Local mode includes <b>all</b> generated LLM code from your selected projects (including modified code samples).
+            </AlertDescription>
+         </Alert>
+      )}
 
       {error ? (
         <Alert variant="destructive">

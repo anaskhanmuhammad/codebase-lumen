@@ -1,5 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import crypto from "crypto";
+import {
+  ingestAiServerVulnerabilities,
+  ingestBanditVulnerabilities,
+  ingestSemgrepVulnerabilities,
+  ingestSonarQubeVulnerabilities,
+} from "../services/vulnerabilityIngestion.service.js";
 
 const prisma = new PrismaClient();
 
@@ -476,9 +482,57 @@ export const completeComparison = async (req, res) => {
         }
 
         if (analyzerResultsToCreate.length > 0) {
+          console.log(`[COMPARISON] Creating ${analyzerResultsToCreate.length} analyzer results`);
           await tx.analyzerResult.createMany({
             data: analyzerResultsToCreate,
           });
+
+          console.log(`[COMPARISON] Processing analyzer results for vulnerability ingestion`);
+          for (const analyzerResult of analyzerResultsToCreate) {
+            const analyzerType = String(analyzerResult.analyzerType).toLowerCase();
+            console.log(`[COMPARISON] Analyzer type: "${analyzerType}" (raw: "${analyzerResult.analyzerType}")`);
+            
+            if (analyzerType === "bandit") {
+              console.log(`[COMPARISON] Triggering Bandit ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
+              await ingestBanditVulnerabilities({
+                tx,
+                codeSampleId: analyzerResult.codeSampleId,
+                rawOutput: analyzerResult.rawOutput,
+              });
+            }
+          }
+
+          for (const analyzerResult of analyzerResultsToCreate) {
+            const analyzerType = String(analyzerResult.analyzerType).toLowerCase();
+            if (analyzerType === "semgrep") {
+              console.log(`[COMPARISON] Triggering Semgrep ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
+              await ingestSemgrepVulnerabilities({
+                tx,
+                codeSampleId: analyzerResult.codeSampleId,
+                rawOutput: analyzerResult.rawOutput,
+              });
+            }
+            if (analyzerType === "sonar" || analyzerType === "sonarqube") {
+              console.log(`[COMPARISON] Triggering SonarQube ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
+              await ingestSonarQubeVulnerabilities({
+                tx,
+                codeSampleId: analyzerResult.codeSampleId,
+                rawOutput: analyzerResult.rawOutput,
+              });
+            }
+            if (
+              analyzerType === "aiserver" ||
+              analyzerType === "ai_server" ||
+              analyzerType === "ai-server"
+            ) {
+              console.log(`[COMPARISON] Triggering AI Server ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
+              await ingestAiServerVulnerabilities({
+                tx,
+                codeSampleId: analyzerResult.codeSampleId,
+                rawOutput: analyzerResult.rawOutput,
+              });
+            }
+          }
         }
       }
 

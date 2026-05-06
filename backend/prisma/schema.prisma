@@ -234,17 +234,34 @@ model AnalyzerResult {
 model Vulnerability {
   vulnerabilityId              String   @id @default(cuid())
   codeSampleId                 String
-  name                         String
+  
+  // Standard identifier & title
+  ruleId                       String?
+  name                         String?
   description                  String?
+  
+  // Semi-structured fields from SARIF (Store as raw JSON)
+  message                      Json?
+  locations                    Json?
+  properties                   Json?
+  fixes                        Json?
+  
+  // Common scalar fields
+  level                        String?
+  helpUri                      String?
   filePath                     String?
   lineNumber                   Int?
-  severityByEachAnalyzer       Json?
+
+  // Aggregate / Metrics fields
   severity                     String?
   severityScore                Float?
-  confidenceScoreByEachAnalyzer Json?
+  confidence                   String?
   confidenceScore              Float?
+  severityByEachAnalyzer       Json?
+  confidenceScoreByEachAnalyzer Json?
   detectedBy                   Json?
   allStandardsViolated         Json?
+
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 

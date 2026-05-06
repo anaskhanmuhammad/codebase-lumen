@@ -248,6 +248,8 @@ export const getProjectById = async (req, res) => {
 export const getLlmLeaderboardDataset = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
+    const { mode = "global", projectIds } = req.query; // 'global' or 'local'
+
     if (!clerkUserId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -261,35 +263,122 @@ export const getLlmLeaderboardDataset = async (req, res) => {
       return res.status(404).json({ error: "User not found in database" });
     }
 
+    // Always fetch all projects owned by the user to populate the frontend dropdown
+    const allUserProjects = await prisma.project.findMany({
+      where: { userId: user.userId },
+      select: { projectId: true, projectName: true },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (mode === "global") {
+      const samplesRaw = await prisma.codeSample.findMany({
+        where: {
+          codeType: "llm",
+          llmId: { not: null },
+          isOriginal: true,
+          comparison: {
+            status: "Completed",
+          },
+        },
+        select: {
+          codeSampleId: true,
+          comparisonId: true,
+          createdAt: true,
+          llm: {
+            select: {
+              llmId: true,
+              llmName: true,
+              provider: { select: { providerName: true } },
+              modelIdentifier: true,
+            },
+          },
+          comparison: {
+            select: {
+              languageId: true,
+              language: { select: { languageName: true } },
+            },
+          },
+          analyzerResults: {
+            select: {
+              analyzerType: true,
+              rawOutput: true,
+              executedAt: true,
+            },
+            orderBy: { analyzerType: "asc" },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const samples = samplesRaw.map((sample) => ({
+        codeSampleId: sample.codeSampleId,
+        comparisonId: sample.comparisonId,
+        createdAt: sample.createdAt,
+        language: {
+          languageId: sample.comparison?.languageId || null,
+          languageName: sample.comparison?.language?.languageName || null,
+        },
+        llm: sample.llm
+          ? {
+              llmId: sample.llm.llmId,
+              llmName: sample.llm.llmName,
+              provider: sample.llm.provider?.providerName || null,
+              modelIdentifier: sample.llm.modelIdentifier,
+            }
+          : null,
+        analyzerResults: (sample.analyzerResults ||[]).map((r) => ({
+          analyzerType: r.analyzerType,
+          rawOutput: r.rawOutput,
+          executedAt: r.executedAt,
+        })),
+      }));
+
+      return res.status(200).json({ samples, projects: allUserProjects });
+    }
+
+    // Handle specific project filtering for Local Leaderboard
+    let projectIdFilter = undefined;
+    if (mode === "local" && projectIds !== undefined) {
+      const selectedIds = projectIds.split(",").filter(Boolean);
+      
+      // If no projects are selected in local mode, return empty results early
+      if (selectedIds.length === 0) {
+        return res.status(200).json({ samples:[], projects: allUserProjects });
+      }
+      projectIdFilter = { in: selectedIds };
+    }
+
     const comparisons = await prisma.comparison.findMany({
       where: {
         status: "Completed",
         project: {
           userId: user.userId,
+          ...(projectIdFilter && { projectId: projectIdFilter }),
         },
       },
       select: {
         comparisonId: true,
         languageId: true,
         language: {
-          select: {
-            languageName: true,
-          },
+          select: { languageName: true },
         },
       },
     });
 
     const comparisonIds = comparisons.map((c) => c.comparisonId);
     if (comparisonIds.length === 0) {
-      return res.status(200).json({ samples: [] });
+      return res.status(200).json({ samples:[], projects: allUserProjects });
     }
+
+    // For Global: isOriginal MUST be true. For Local: ignore isOriginal (gets true & false)
+    const isOriginalFilter = mode === "global" ? true : undefined;
 
     const samplesRaw = await prisma.codeSample.findMany({
       where: {
         comparisonId: { in: comparisonIds },
         codeType: "llm",
-        isOriginal: true,
         llmId: { not: null },
+        ...(isOriginalFilter !== undefined && { isOriginal: isOriginalFilter }),
       },
       select: {
         codeSampleId: true,
@@ -299,22 +388,14 @@ export const getLlmLeaderboardDataset = async (req, res) => {
           select: {
             llmId: true,
             llmName: true,
-            provider: {
-              select: {
-                providerName: true,
-              },
-            },
+            provider: { select: { providerName: true } },
             modelIdentifier: true,
           },
         },
         comparison: {
           select: {
             languageId: true,
-            language: {
-              select: {
-                languageName: true,
-              },
-            },
+            language: { select: { languageName: true } },
           },
         },
         analyzerResults: {
@@ -323,14 +404,10 @@ export const getLlmLeaderboardDataset = async (req, res) => {
             rawOutput: true,
             executedAt: true,
           },
-          orderBy: {
-            analyzerType: "asc",
-          },
+          orderBy: { analyzerType: "asc" },
         },
       },
-      orderBy: {
-        createdAt: "asc",
-      },
+      orderBy: { createdAt: "asc" },
     });
 
     const samples = samplesRaw.map((sample) => ({
@@ -349,14 +426,14 @@ export const getLlmLeaderboardDataset = async (req, res) => {
             modelIdentifier: sample.llm.modelIdentifier,
           }
         : null,
-      analyzerResults: (sample.analyzerResults || []).map((r) => ({
+      analyzerResults: (sample.analyzerResults ||[]).map((r) => ({
         analyzerType: r.analyzerType,
         rawOutput: r.rawOutput,
         executedAt: r.executedAt,
       })),
     }));
 
-    return res.status(200).json({ samples });
+    return res.status(200).json({ samples, projects: allUserProjects });
   } catch (error) {
     console.error("Error fetching LLM leaderboard dataset:", error);
     return res.status(500).json({ error: "Failed to fetch benchmark dataset" });

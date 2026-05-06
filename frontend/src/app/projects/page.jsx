@@ -127,9 +127,7 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
           </div>
 
           {/* Error */}
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-1">

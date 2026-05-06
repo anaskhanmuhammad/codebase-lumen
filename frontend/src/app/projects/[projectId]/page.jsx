@@ -42,12 +42,15 @@ function StatusBadge({ status }) {
     },
   };
 
-  const { icon: Icon, label, className } =
-    map[status?.toLowerCase()] ?? {
-      icon: Circle,
-      label: status ?? "Pending",
-      className: "bg-muted text-muted-foreground",
-    };
+  const {
+    icon: Icon,
+    label,
+    className,
+  } = map[status?.toLowerCase()] ?? {
+    icon: Circle,
+    label: status ?? "Pending",
+    className: "bg-muted text-muted-foreground",
+  };
 
   return (
     <span
@@ -79,17 +82,20 @@ function NewComparisonModal({ onClose, onCreated, getToken, projectId }) {
 
     try {
       const token = await getToken();
-      const res = await fetch(`${BACKEND_URL}/projects/${projectId}/comparisons`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await fetch(
+        `${BACKEND_URL}/projects/${projectId}/comparisons`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: name.trim(),
+            type,
+          }),
         },
-        body: JSON.stringify({
-          name: name.trim(),
-          type,
-        }),
-      });
+      );
 
       const data = await res.json();
 
@@ -335,8 +341,8 @@ export default function ProjectDetailPage() {
               </div>
               <h3 className="font-semibold">No comparisons yet</h3>
               <p className="text-sm text-muted-foreground max-w-xs">
-                Start a new comparison to analyse and compare code samples in this
-                project.
+                Start a new comparison to analyse and compare code samples in
+                this project.
               </p>
               <button
                 onClick={() => setShowModal(true)}
@@ -372,11 +378,19 @@ export default function ProjectDetailPage() {
                   {comparisons.map((c) => (
                     <tr
                       key={c.comparisonId}
-                      onClick={() => router.push(`/projects/${projectId}/comparisons/${c.comparisonId}`)}
+                      onClick={() =>
+                        router.push(
+                          `/projects/${projectId}/comparisons/${c.comparisonId}`,
+                        )
+                      }
                       className="hover:bg-muted/30 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3 font-medium">
-                        {c.name || <span className="text-muted-foreground italic">Unnamed</span>}
+                        {c.name || (
+                          <span className="text-muted-foreground italic">
+                            Unnamed
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell capitalize">
                         {c.type ?? "—"}

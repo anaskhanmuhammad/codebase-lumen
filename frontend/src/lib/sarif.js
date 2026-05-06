@@ -10,6 +10,19 @@ export function unwrapSarifPayload(payload) {
 export function getSarifResults(payload) {
   const sarifPayload = unwrapSarifPayload(payload);
   return sarifPayload?.runs?.[0]?.results || sarifPayload?.results || [];
+
+  //   const results = sarifPayload?.runs?.[0]?.results || sarifPayload?.results || [];
+  
+  // // Filter out malformed results that lack core properties (ruleId, message, or locations)
+  // return results.filter((result) => {
+  //   return result && (
+  //     result.ruleId || 
+  //     result.rule ||
+  //     (result.message && typeof result.message === 'object' && result.message.text) ||
+  //     (result.locations && Array.isArray(result.locations) && result.locations.length > 0)
+  //   );
+  // });
+
 }
 
 export function getSarifRules(payload) {

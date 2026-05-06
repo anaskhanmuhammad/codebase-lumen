@@ -1,9 +1,9 @@
 ﻿"use client";
-
-import React, { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Loader2, ArrowLeft, Plus, Trash2, MessageCircle } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Trash2, MessageCircle, SendHorizontal } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, XCircle } from "lucide-react";
 
@@ -12,6 +12,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import AnalyzerRawModal from "@/app/compare/_components/RawResults/AnalyzerRawModal";
 
 import { analyzeBandit } from "@/app/compare/actions/analyzeBandit";
@@ -128,6 +136,14 @@ export default function ComparisonPage() {
     sonar: false,
     aiServer: false,
   });
+
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const chatContainerRef = useRef(null);
 
   useEffect(() => {
     const fetchComparison = async () => {
@@ -290,6 +306,80 @@ export default function ComparisonPage() {
 
     fetchLlms();
   }, []);
+
+  const loadChatHistory = async () => {
+    try {
+      setChatLoading(true);
+      setChatError("");
+      const token = await getToken();
+      const res = await fetch(`${BACKEND_URL}/api/comparisons/${comparisonId}/chat`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to load chat history.");
+      }
+
+      const history = await res.json();
+      setChatMessages(Array.isArray(history) ? history : []);
+    } catch (err) {
+      setChatError(err.message || "Failed to load chat history.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    const message = chatInput.trim();
+    if (!message || chatSending) return;
+
+    const optimisticUserMessage = {
+      messageId: `temp-user-${Date.now()}`,
+      type: "user",
+      messageText: message,
+      timestamp: new Date().toISOString(),
+    };
+
+    setChatMessages((prev) => [...prev, optimisticUserMessage]);
+    setChatInput("");
+    setChatSending(true);
+    setChatError("");
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`${BACKEND_URL}/api/comparisons/${comparisonId}/chat/message`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to send message.");
+      }
+
+      const aiMessage = await res.json();
+      setChatMessages((prev) => [...prev, aiMessage]);
+    } catch (err) {
+      setChatError(err.message || "Failed to send message.");
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isChatOpen || !comparisonId) return;
+    loadChatHistory();
+  }, [isChatOpen, comparisonId]);
+
+  useEffect(() => {
+    if (!chatContainerRef.current) return;
+    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  }, [chatMessages, isChatOpen, chatLoading]);
 
   const handleToggleAnalysis = (key, checked) => {
     setSelectedAnalyses((prev) => ({
@@ -610,7 +700,13 @@ export default function ComparisonPage() {
       if (selectedAnalyses.bandit) analyzers.push({ name: "bandit", fn: analyzeBandit });
       if (selectedAnalyses.semgrep) analyzers.push({ name: "semgrep", fn: analyzeSemgrep });
       if (selectedAnalyses.sonar) analyzers.push({ name: "sonar", fn: analyzeCode });
-      if (selectedAnalyses.aiServer) analyzers.push({ name: "aiServer", fn: analyzeAiServer });
+
+      const analyzeAiServerWithLogging = async (code, languageKey, filename) => {
+        const response = await analyzeAiServer(code, languageKey, filename);
+        return response;
+      };
+
+      if (selectedAnalyses.aiServer) analyzers.push({ name: "aiServer", fn: analyzeAiServerWithLogging });
 
       if (analyzers.length === 0) {
         alert("Please select at least one analyzer.");
@@ -631,7 +727,11 @@ export default function ComparisonPage() {
 
       for (const codeItem of codeItems) {
         const settled = await Promise.allSettled(
-          analyzers.map((a) => a.fn(codeItem.code, codeItem.code, detectedLanguageKey))
+          analyzers.map((a) =>
+            a.name === "aiServer"
+              ? a.fn(codeItem.code, detectedLanguageKey, `${codeItem.codeKey}.js`)
+              : a.fn(codeItem.code, codeItem.code, detectedLanguageKey)
+          )
         );
 
         const analyzerPayloads = {
@@ -645,7 +745,7 @@ export default function ComparisonPage() {
           const runResult = settled[i];
           if (runResult.status === "fulfilled") {
             const responsePayload = runResult.value;
-            analyzerPayloads[a.name] = responsePayload?.human || responsePayload?.llm || null;
+            analyzerPayloads[a.name] = a.name === "aiServer" ? responsePayload?.data || null : responsePayload?.human || responsePayload?.llm || null;
           }
         });
 
@@ -659,8 +759,6 @@ export default function ComparisonPage() {
           codeKey: codeItem.codeKey,
           label: codeItem.label,
         });
-
-        console.log(`[Comparison ${comparisonId}] raw analyzer response for ${codeItem.label}`, analyzerPayloads);
       }
 
       setResults(resultItems);
@@ -1050,10 +1148,95 @@ export default function ComparisonPage() {
       </div>
 
       <div className="fixed bottom-6 right-6 z-50">
-        <Button type="button" size="icon" aria-label="Open chat">
+        <Button type="button" size="icon" aria-label="Open chat" onClick={() => setIsChatOpen(true)}>
           <MessageCircle className="h-5 w-5" />
         </Button>
       </div>
+
+      <Sheet open={isChatOpen} onOpenChange={setIsChatOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md p-0">
+          <SheetHeader className="border-b">
+            <SheetTitle>AI Chat</SheetTitle>
+            <SheetDescription>
+              Ask follow-up questions about this comparison.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex h-[calc(100%-86px)] flex-col">
+            <div ref={chatContainerRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+              {chatLoading ? (
+                <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading chat history...
+                </div>
+              ) : chatMessages.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  No messages yet. Start the conversation with the AI assistant.
+                </div>
+              ) : (
+                chatMessages.map((msg, idx) => {
+                  const isUser = String(msg.type || "").toLowerCase() === "user";
+                  return (
+                    <div
+                      key={msg.messageId || `${msg.type}-${idx}`}
+                      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                    >
+<div
+  className={`max-w-[85%] rounded-xl px-4 py-3 text-sm overflow-x-auto ${
+    isUser
+      ? "bg-primary text-primary-foreground whitespace-pre-wrap"
+      : "bg-muted text-foreground"
+  }`}
+>
+  {isUser ? (
+    msg.messageText
+  ) : (
+    /* Moved the className to a wrapper div here */
+    <div className="prose prose-sm dark:prose-invert max-w-none break-words [&>p]:mb-2 [&>ol]:list-decimal [&>ol]:pl-4 [&>ul]:list-disc [&>ul]:pl-4[&>li]:mb-1">
+      <ReactMarkdown>
+        {msg.messageText}
+      </ReactMarkdown>
+    </div>
+  )}
+</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {chatError && (
+              <div className="px-4 pb-2 text-sm text-red-600">{chatError}</div>
+            )}
+
+            <div className="border-t p-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendChatMessage();
+                    }
+                  }}
+                  placeholder="Type your message..."
+                  disabled={chatSending || chatLoading}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={handleSendChatMessage}
+                  disabled={chatSending || chatLoading || !chatInput.trim()}
+                  aria-label="Send message"
+                >
+                  {chatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -119,12 +119,21 @@ export default function AppSidebar() {
                 </SidebarMenuButton>
 
                 {/* leaderboard */}
-                    <SidebarMenuButton asChild>
+                <SidebarMenuButton asChild>
                   <Link href="/llm-leaderboard">
                     <SearchCode className="mr-2 h-4 w-4" />
                     llm leaderboard
                   </Link>
                 </SidebarMenuButton>
+
+                <SidebarMenuButton asChild>
+                  <Link href="/compare">
+                    <SearchCode className="mr-2 h-4 w-4" />
+                    Repository Scanner
+                  </Link>
+                </SidebarMenuButton>
+
+
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
