@@ -378,11 +378,14 @@ export default function ProjectDetailPage() {
                   {comparisons.map((c) => (
                     <tr
                       key={c.comparisonId}
-                      onClick={() =>
+                      onClick={() => {
+                        if (!c.comparisonId) return;
                         router.push(
-                          `/projects/${projectId}/comparisons/${c.comparisonId}`,
-                        )
-                      }
+                          `/projects/${encodeURIComponent(projectId)}/comparisons/${encodeURIComponent(
+                            c.comparisonId,
+                          )}`,
+                        );
+                      }}
                       className="hover:bg-muted/30 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3 font-medium">

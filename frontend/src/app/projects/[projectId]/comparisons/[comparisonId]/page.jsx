@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import ReactMarkdown from "react-markdown";
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -21,6 +21,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import AnalyzerRawModal from "@/app/compare/_components/RawResults/AnalyzerRawModal";
+import ComparisonWinner from "@/app/compare/_components/ComparisonWinner";
 
 import { analyzeBandit } from "@/app/compare/actions/analyzeBandit";
 import { analyzeSemgrep } from "@/app/compare/actions/analyzeSemgrep";
@@ -702,7 +703,7 @@ export default function ComparisonPage() {
       if (selectedAnalyses.sonar) analyzers.push({ name: "sonar", fn: analyzeCode });
 
       const analyzeAiServerWithLogging = async (code, languageKey, filename) => {
-        const response = await analyzeAiServer(code, languageKey, filename);
+        const response = await analyzeAiServer(code, languageKey, "", filename);
         return response;
       };
 
@@ -1137,6 +1138,8 @@ export default function ComparisonPage() {
                 })}
               </div>
             </div>
+
+            <ComparisonWinner results={results} rawAnalyzerResponses={rawAnalyzerResponses} />
           </div>
         )}
 

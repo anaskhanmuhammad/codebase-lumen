@@ -126,12 +126,12 @@ export default function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
 
-                <SidebarMenuButton asChild>
+                {/* <SidebarMenuButton asChild>
                   <Link href="/compare">
                     <SearchCode className="mr-2 h-4 w-4" />
                     Repository Scanner
                   </Link>
-                </SidebarMenuButton>
+                </SidebarMenuButton> */}
 
 
               </SidebarMenuItem>
