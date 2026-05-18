@@ -298,6 +298,15 @@ export const getLlmLeaderboardDataset = async (req, res) => {
               language: { select: { languageName: true } },
             },
           },
+          vulnerabilities: {
+            select: {
+              vulnerabilityId: true,
+              allStandardsViolated: true,
+              level: true,
+              severity: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
           analyzerResults: {
             select: {
               analyzerType: true,
@@ -326,6 +335,12 @@ export const getLlmLeaderboardDataset = async (req, res) => {
               modelIdentifier: sample.llm.modelIdentifier,
             }
           : null,
+        vulnerabilities: (sample.vulnerabilities || []).map((v) => ({
+          vulnerabilityId: v.vulnerabilityId,
+          allStandardsViolated: v.allStandardsViolated,
+          level: v.level,
+          severity: v.severity,
+        })),
         analyzerResults: (sample.analyzerResults ||[]).map((r) => ({
           analyzerType: r.analyzerType,
           rawOutput: r.rawOutput,
@@ -398,6 +413,15 @@ export const getLlmLeaderboardDataset = async (req, res) => {
             language: { select: { languageName: true } },
           },
         },
+        vulnerabilities: {
+          select: {
+            vulnerabilityId: true,
+            allStandardsViolated: true,
+            level: true,
+            severity: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
         analyzerResults: {
           select: {
             analyzerType: true,
@@ -426,6 +450,12 @@ export const getLlmLeaderboardDataset = async (req, res) => {
             modelIdentifier: sample.llm.modelIdentifier,
           }
         : null,
+      vulnerabilities: (sample.vulnerabilities || []).map((v) => ({
+        vulnerabilityId: v.vulnerabilityId,
+        allStandardsViolated: v.allStandardsViolated,
+        level: v.level,
+        severity: v.severity,
+      })),
       analyzerResults: (sample.analyzerResults ||[]).map((r) => ({
         analyzerType: r.analyzerType,
         rawOutput: r.rawOutput,

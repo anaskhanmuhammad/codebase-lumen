@@ -54,7 +54,35 @@ function getSonarArtifactUri(issue, fallbackComponentKey) {
   return uri.startsWith("/") ? uri.slice(1) : uri;
 }
 
-function createSonarSarifResponse(issuesResponse, componentKey) {
+function collectStringValues(input, output) {
+  if (input === null || input === undefined) return;
+  if (typeof input === "string") {
+    const value = input.trim();
+    if (value) output.add(value);
+    return;
+  }
+  if (Array.isArray(input)) {
+    for (const item of input) collectStringValues(item, output);
+    return;
+  }
+  if (typeof input === "object") {
+    for (const value of Object.values(input)) {
+      collectStringValues(value, output);
+    }
+  }
+}
+
+function extractSonarStandards(ruleMeta = {}) {
+  const standards = new Set();
+
+  collectStringValues(ruleMeta?.securityStandards, standards);
+  collectStringValues(ruleMeta?.tags, standards);
+  collectStringValues(ruleMeta?.sysTags, standards);
+
+  return standards.size > 0 ? Array.from(standards) : null;
+}
+
+function createSonarSarifResponse(issuesResponse, componentKey, ruleMetaMap = {}) {
   const issues = Array.isArray(issuesResponse?.issues) ? issuesResponse.issues : [];
   const ruleMap = new Map();
 
@@ -63,14 +91,21 @@ function createSonarSarifResponse(issuesResponse, componentKey) {
     const region = issue.textRange || {};
 
     if (!ruleMap.has(ruleId)) {
+      const meta = ruleMetaMap?.[ruleId] || {};
       ruleMap.set(ruleId, {
         id: ruleId,
-        name: ruleId,
+        name: meta.name || ruleId,
         shortDescription: {
-          text: issue.message || ruleId,
+          text: meta?.name || issue.message || ruleId,
         },
         fullDescription: {
-          text: issue.message || ruleId,
+          text: meta?.htmlDesc || meta?.name || issue.message || ruleId,
+        },
+        properties: {
+          tags: Array.isArray(meta?.tags) ? meta.tags : null,
+          sysTags: Array.isArray(meta?.sysTags) ? meta.sysTags : null,
+          securityStandards: meta?.securityStandards || null,
+          allStandardsViolated: extractSonarStandards(meta),
         },
       });
     }
@@ -99,10 +134,14 @@ function createSonarSarifResponse(issuesResponse, componentKey) {
       properties: {
         severity: issue.severity || null,
         type: issue.type || null,
-        category: issue.type === "VULNERABILITY" ? "Security" : "Quality", 
+        category: issue.type === "VULNERABILITY" ? "Security" : "Quality",
         effort: issue.effort || null,
         status: issue.status || null,
         rule: issue.rule || null,
+        tags: ruleMetaMap?.[ruleId]?.tags || null,
+        sysTags: ruleMetaMap?.[ruleId]?.sysTags || null,
+        securityStandards: ruleMetaMap?.[ruleId]?.securityStandards || null,
+        allStandardsViolated: extractSonarStandards(ruleMetaMap?.[ruleId]),
       },
     };
   });
@@ -307,16 +346,63 @@ async function fetchFileMetrics(componentKey) {
                 headers
             });
 
-            // Second: If it exists, get the measures
-            const issuesResp = await axios.get(`${SONARQUBE_URL}/api/issues/search`, {
-                params: { componentKeys: componentKey, ps: 100 },
-                headers
-            });
+            // Second: If it exists, get all issues for the component across pages
+            const pageSize = 100;
+            let pageIndex = 1;
+            let allIssues = [];
+            let paging = null;
+
+            while (true) {
+              const issuesResp = await axios.get(`${SONARQUBE_URL}/api/issues/search`, {
+                params: { componentKeys: componentKey, ps: pageSize, p: pageIndex },
+                headers,
+              });
+
+              const pageIssues = Array.isArray(issuesResp.data?.issues) ? issuesResp.data.issues : [];
+              allIssues = allIssues.concat(pageIssues);
+              paging = issuesResp.data?.paging || paging;
+
+              const total = paging?.total ?? issuesResp.data?.total ?? 0;
+              if (pageIssues.length < pageSize) break;
+              if (total && allIssues.length >= total) break;
+              pageIndex += 1;
+            }
+
+            const issuesResp = {
+                data: {
+                    issues: allIssues,
+                    paging,
+                },
+            };
+
+            // Fetch rule metadata (tags, etc.) for each unique ruleId so we can
+            // surface standards (CWE/OWASP) in SARIF output.
+            const uniqueRuleIds = Array.from(new Set(allIssues.map(i => i.rule).filter(Boolean)));
+            const ruleMetaMap = {};
+
+            for (const rId of uniqueRuleIds) {
+              try {
+                const resp = await axios.get(`${SONARQUBE_URL}/api/rules/show`, {
+                  params: {
+                    key: rId,
+                    f: "name,htmlDesc,mdDesc,tags,sysTags,securityStandards,cleanCodeAttribute,cleanCodeAttributeCategory,impacts",
+                  },
+                  headers,
+                });
+                // Sonar returns rule in resp.data.rule
+                if (resp?.data?.rule) {
+                  ruleMetaMap[rId] = resp.data.rule;
+                }
+              } catch (e) {
+                // Non-fatal: continue without tags for this rule
+                console.warn(`Failed to fetch rule metadata for ${rId}: ${e?.message || e}`);
+              }
+            }
 
             console.log(`SonarQube default response for ${componentKey}:`);
             console.log(JSON.stringify(issuesResp.data, null, 2));
 
-            const sarifResponse = createSonarSarifResponse(issuesResp.data, componentKey);
+            const sarifResponse = createSonarSarifResponse(issuesResp.data, componentKey, ruleMetaMap);
 
             console.log(`SonarQube SARIF response for ${componentKey}:`);
             console.log(JSON.stringify(sarifResponse, null, 2));

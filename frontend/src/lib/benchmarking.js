@@ -1,17 +1,78 @@
-import {
-  getIssueCategory,
-  getIssueSeverity,
-  getSarifResults,
-  getSarifRuleMap,
-  getSeverityPenalty,
-} from "@/lib/sarif";
+const SECURITY_MARKERS = [
+  "security",
+  "cwe",
+  "owasp",
+  "vuln",
+  "vulnerability",
+  "injection",
+  "xss",
+  "csrf",
+  "ssrf",
+  "rce",
+  "auth",
+  "crypto",
+  "sqli",
+  "sql",
+  "ssl",
+  "privacy",
+];
+
+function normalizeStandards(allStandardsViolated) {
+  if (!Array.isArray(allStandardsViolated)) return [];
+  return allStandardsViolated
+    .map((tag) => String(tag || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isSecurityByStandards(allStandardsViolated) {
+  const tags = normalizeStandards(allStandardsViolated);
+  return tags.some((tag) => SECURITY_MARKERS.some((marker) => tag.includes(marker)));
+}
+
+function inferCategory(vulnerability) {
+  if (isSecurityByStandards(vulnerability?.allStandardsViolated)) return "security";
+
+  const issueType = String(vulnerability?.detectedBy?.issueType || "")
+    .trim()
+    .toLowerCase();
+  if (issueType.includes("vulnerability") || issueType.includes("security")) return "security";
+
+  const severity = String(vulnerability?.severity || "")
+    .trim()
+    .toLowerCase();
+  if (["blocker", "critical", "high"].includes(severity)) return "security";
+
+  return "quality";
+}
+
+function getPenalty(vulnerability) {
+  const levelOrSeverity = String(vulnerability?.level || vulnerability?.severity || "")
+    .trim()
+    .toLowerCase();
+
+  if (["error", "blocker", "critical", "high"].includes(levelOrSeverity)) return 10;
+  if (["warning", "major", "medium"].includes(levelOrSeverity)) return 6;
+  if (["note", "minor", "low"].includes(levelOrSeverity)) return 3;
+  return 1;
+}
+
+function getSeverityBucket(vulnerability) {
+  const levelOrSeverity = String(vulnerability?.level || vulnerability?.severity || "")
+    .trim()
+    .toLowerCase();
+
+  if (["error", "blocker", "critical", "high"].includes(levelOrSeverity)) return "error";
+  if (["warning", "major", "medium"].includes(levelOrSeverity)) return "warning";
+  if (["note", "minor", "low"].includes(levelOrSeverity)) return "note";
+  return "other";
+}
 
 function clampScore(value) {
   if (Number.isNaN(value) || value == null) return 0;
   return Math.max(0, Math.min(100, value));
 }
 
-export function scoreSample({ analyzerResults }) {
+export function scoreSample({ vulnerabilities }) {
   const summary = {
     penalties: { security: 0, quality: 0 },
     counts: { security: 0, quality: 0 },
@@ -21,28 +82,16 @@ export function scoreSample({ analyzerResults }) {
     },
   };
 
-  const resultsList = Array.isArray(analyzerResults) ? analyzerResults : [];
+  const list = Array.isArray(vulnerabilities) ? vulnerabilities : [];
 
-  for (const analyzer of resultsList) {
-    const analyzerType = analyzer?.analyzerType;
-    const payload = analyzer?.rawOutput;
+  for (const vulnerability of list) {
+    const category = inferCategory(vulnerability);
+    const penalty = getPenalty(vulnerability);
+    const bucket = getSeverityBucket(vulnerability);
 
-    if (!analyzerType || !payload) continue;
-
-    const ruleMap = getSarifRuleMap(payload);
-    const results = getSarifResults(payload);
-
-    for (const result of results) {
-      const severity = getIssueSeverity(result);
-      const category = getIssueCategory(result, analyzerType, ruleMap);
-      const penalty = getSeverityPenalty(severity);
-
-      const bucket = severity === "error" || severity === "warning" || severity === "note" ? severity : "other";
-
-      summary.penalties[category] += penalty;
-      summary.counts[category] += 1;
-      summary.bySeverity[category][bucket] += 1;
-    }
+    summary.penalties[category] += penalty;
+    summary.counts[category] += 1;
+    summary.bySeverity[category][bucket] += 1;
   }
 
   const securityScore = clampScore(100 - summary.penalties.security);
@@ -63,7 +112,9 @@ export function aggregateByLlm(samples) {
     const llm = sample?.llm;
     if (!llm?.llmId) continue;
 
-    const scored = scoreSample({ analyzerResults: sample?.analyzerResults });
+    const vulnerabilities = Array.isArray(sample?.vulnerabilities) ? sample.vulnerabilities : [];
+
+    const scored = scoreSample({ vulnerabilities });
 
     const existing = rowsByLlm.get(llm.llmId) || {
       llmId: llm.llmId,

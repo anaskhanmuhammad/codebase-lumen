@@ -549,11 +549,51 @@ export const completeComparison = async (req, res) => {
       timeout: 30000,
     });
 
+    const codeSampleIds = Object.values(codeKeyToCodeSampleIdMap);
+    const vulnerabilities = codeSampleIds.length
+      ? await prisma.vulnerability.findMany({
+          where: { codeSampleId: { in: codeSampleIds } },
+          orderBy: [{ codeSampleId: "asc" }, { createdAt: "asc" }],
+          select: {
+            vulnerabilityId: true,
+            codeSampleId: true,
+            name: true,
+            description: true,
+            filePath: true,
+            lineNumber: true,
+            severity: true,
+            detectedBy: true,
+            allStandardsViolated: true,
+            level: true,
+            confidence: true,
+          },
+        })
+      : [];
+
+    const vulnerabilitiesByCodeSampleId = new Map();
+    for (const vulnerability of vulnerabilities) {
+      const list = vulnerabilitiesByCodeSampleId.get(vulnerability.codeSampleId) || [];
+      list.push(vulnerability);
+      vulnerabilitiesByCodeSampleId.set(vulnerability.codeSampleId, list);
+    }
+
+    const codeSamples = Object.entries(codeKeyToCodeSampleIdMap).map(([codeKey, codeSampleId]) => ({
+      codeKey,
+      codeSampleId,
+    }));
+
+    const vulnerabilitiesByCode = {};
+    for (const { codeKey, codeSampleId } of codeSamples) {
+      vulnerabilitiesByCode[codeKey] = vulnerabilitiesByCodeSampleId.get(codeSampleId) || [];
+    }
+
     return res.status(201).json({
       message: "Comparison completed and code samples saved",
       codeSamplesSaved: codeSampleRows.length,
       analyzerResultsSaved: analyzerResultsToCreate.length,
       language: language.languageName,
+      codeSamples,
+      vulnerabilitiesByCode,
     });
   } catch (error) {
     console.error("Error completing comparison:", error);
@@ -737,6 +777,24 @@ export const getAnalyzerResults = async (req, res) => {
       orderBy: { analyzerType: "asc" },
     });
 
+    const vulnerabilities = await prisma.vulnerability.findMany({
+      where: { codeSampleId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        vulnerabilityId: true,
+        codeSampleId: true,
+        name: true,
+        description: true,
+        filePath: true,
+        lineNumber: true,
+        severity: true,
+        detectedBy: true,
+        allStandardsViolated: true,
+        level: true,
+        confidence: true,
+      },
+    });
+
     return res.status(200).json({
       codeSampleId,
       results: analyzerResults.map((result) => ({
@@ -745,6 +803,7 @@ export const getAnalyzerResults = async (req, res) => {
         rawOutput: result.rawOutput,
         executedAt: result.executedAt,
       })),
+      vulnerabilities,
     });
   } catch (error) {
     console.error("Error fetching analyzer results:", error);

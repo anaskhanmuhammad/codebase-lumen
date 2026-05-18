@@ -155,7 +155,6 @@ function RulesSheet() {
         <SheetHeader>
           <SheetTitle>Benchmark rules & formulas</SheetTitle>
           <SheetDescription>
-            This explains exactly how the Security / Quality / Both benchmarks are calculated.
           </SheetDescription>
         </SheetHeader>
 
@@ -166,12 +165,6 @@ function RulesSheet() {
 
           <div className="space-y-2">
             <div className="font-semibold">2) Security vs Quality classification</div>
-            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
-              <li>If analyzer is Bandit → category = Security.</li>
-              <li>If result.properties.category contains “security” → Security.</li>
-              <li>If it contains “quality” → Quality.</li>
-              <li>Otherwise, we look at tags (e.g., “cwe”, “xss”, “sqli”). If match → Security; else → Quality.</li>
-            </ul>
           </div>
 
           <div className="space-y-2">
@@ -389,7 +382,7 @@ export default function LLMLeaderboard() {
          <Alert className="bg-muted/50">
             <Info className="h-4 w-4" />
             <AlertDescription>
-              Local mode includes <b>all</b> generated LLM code from your selected projects (including modified code samples).
+              Local mode includes all generated LLM code from your selected projects (including modified code samples).
             </AlertDescription>
          </Alert>
       )}

@@ -252,6 +252,9 @@ export default function ComparisonPage() {
                       label,
                       code: sample.codeContent || "",
                       analyzers,
+                      vulnerabilities: Array.isArray(analyzerData.vulnerabilities)
+                        ? analyzerData.vulnerabilities
+                        : [],
                     };
 
                     resultItems.push({
@@ -754,6 +757,7 @@ export default function ComparisonPage() {
           codeKey: codeItem.codeKey,
           label: codeItem.label,
           analyzers: analyzerPayloads,
+          vulnerabilities: [],
         };
 
         resultItems.push({
@@ -794,6 +798,19 @@ export default function ComparisonPage() {
         const saveErr = await saveRes.json().catch(() => ({}));
         throw new Error(saveErr.error || "Analysis finished but failed to save comparison data");
       }
+
+      const saveData = await saveRes.json().catch(() => ({}));
+      const vulnerabilitiesByCode =
+        saveData && typeof saveData.vulnerabilitiesByCode === "object"
+          ? saveData.vulnerabilitiesByCode
+          : {};
+
+      for (const [codeKey, vulnerabilities] of Object.entries(vulnerabilitiesByCode)) {
+        if (!rawByCode[codeKey]) continue;
+        rawByCode[codeKey].vulnerabilities = Array.isArray(vulnerabilities) ? vulnerabilities : [];
+      }
+
+      setRawAnalyzerResponses({ ...rawByCode });
 
       setComparison((prev) =>
         prev

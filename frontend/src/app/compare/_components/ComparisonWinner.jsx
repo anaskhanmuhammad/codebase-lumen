@@ -6,15 +6,47 @@ import { Trophy, ShieldAlert, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-import {
-  getSarifResults,
-  getSarifRuleMap,
-  getIssueCategory,
-  getIssueSeverity,
-  getSeverityPenalty,
-} from "@/lib/sarif";
+const SECURITY_MARKERS = [
+  "security",
+  "cwe",
+  "owasp",
+  "vuln",
+  "vulnerability",
+  "injection",
+  "xss",
+  "csrf",
+  "ssrf",
+  "rce",
+  "auth",
+  "crypto",
+  "sqli",
+  "sql",
+  "ssl",
+  "privacy",
+];
 
-const ANALYZERS = ["semgrep", "sonar", "bandit", "aiServer"];
+function normalizeStandards(allStandardsViolated) {
+  if (!Array.isArray(allStandardsViolated)) return [];
+  return allStandardsViolated
+    .map((tag) => String(tag || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isSecurityByStandards(allStandardsViolated) {
+  const tags = normalizeStandards(allStandardsViolated);
+  return tags.some((tag) => SECURITY_MARKERS.some((marker) => tag.includes(marker)));
+}
+
+function getPenalty(vulnerability) {
+  const levelOrSeverity = String(vulnerability?.level || vulnerability?.severity || "")
+    .trim()
+    .toLowerCase();
+
+  if (["error", "blocker", "critical", "high"].includes(levelOrSeverity)) return 10;
+  if (["warning", "major", "medium"].includes(levelOrSeverity)) return 6;
+  if (["note", "minor", "low"].includes(levelOrSeverity)) return 3;
+  return 1;
+}
 
 export default function ComparisonWinner({ results, rawAnalyzerResponses }) {
   const { chartData, winner } = useMemo(() => {
@@ -27,35 +59,30 @@ export default function ComparisonWinner({ results, rawAnalyzerResponses }) {
     const data = [];
 
     results.forEach((item) => {
-      let securityScore = 0;
-      let qualityScore = 0;
+      let securityPenalty = 0;
+      let qualityPenalty = 0;
       let securityCount = 0;
       let qualityCount = 0;
       let totalPenalty = 0;
 
       const codeResponse = rawAnalyzerResponses[item.codeKey];
-      if (codeResponse?.analyzers) {
-        for (const name of ANALYZERS) {
-          const payload = codeResponse.analyzers[name];
-          if (!payload) continue;
+      const vulnerabilities = Array.isArray(codeResponse?.vulnerabilities)
+        ? codeResponse.vulnerabilities
+        : [];
 
-          const sarifResults = getSarifResults(payload);
-          const ruleMap = getSarifRuleMap(payload);
+      if (vulnerabilities.length > 0) {
+        for (const vulnerability of vulnerabilities) {
+          const penalty = getPenalty(vulnerability);
+          const isSecurity = isSecurityByStandards(vulnerability?.allStandardsViolated);
 
-          for (const result of sarifResults) {
-            const severity = getIssueSeverity(result);
-            const category = getIssueCategory(result, name, ruleMap);
-            const penalty = getSeverityPenalty(severity);
+          totalPenalty += penalty;
 
-            totalPenalty += penalty;
-
-            if (category === "security") {
-              securityCount++;
-              securityScore += penalty;
-            } else {
-              qualityCount++;
-              qualityScore += penalty;
-            }
+          if (isSecurity) {
+            securityCount += 1;
+            securityPenalty += penalty;
+          } else {
+            qualityCount += 1;
+            qualityPenalty += penalty;
           }
         }
       }
@@ -70,10 +97,36 @@ export default function ComparisonWinner({ results, rawAnalyzerResponses }) {
       // Tie-breaker: least penalty, then least security score, then least quality score
       if (totalPenalty < bestScore) {
         bestScore = totalPenalty;
-        currentWinner = { ...item, totalPenalty, securityCount, qualityCount };
+        currentWinner = {
+          ...item,
+          totalPenalty,
+          securityCount,
+          qualityCount,
+          securityPenalty,
+          qualityPenalty,
+        };
       } else if (totalPenalty === bestScore && currentWinner) {
-        if (securityScore < currentWinner.securityScore) {
-          currentWinner = { ...item, totalPenalty, securityCount, qualityCount, securityScore };
+        if (securityPenalty < (currentWinner.securityPenalty || 0)) {
+          currentWinner = {
+            ...item,
+            totalPenalty,
+            securityCount,
+            qualityCount,
+            securityPenalty,
+            qualityPenalty,
+          };
+        } else if (
+          securityPenalty === (currentWinner.securityPenalty || 0) &&
+          qualityPenalty < (currentWinner.qualityPenalty || 0)
+        ) {
+          currentWinner = {
+            ...item,
+            totalPenalty,
+            securityCount,
+            qualityCount,
+            securityPenalty,
+            qualityPenalty,
+          };
         }
       }
     });
