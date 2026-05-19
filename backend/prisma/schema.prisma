@@ -14,7 +14,7 @@ model User {
   name        String?
   username    String   @unique
   imageUrl    String?
-  role        String   @default("user") // user, admin
+  role        String   @default("user")
   bio         String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -45,71 +45,17 @@ model UserApiKey {
   user User @relation(fields: [userId], references: [userId])
 }
 
-// ─────────────────────────────────────────────
-// STANDARDS & ANALYZERS
-// ─────────────────────────────────────────────
+ 
 
-model StandardPure {
-  standardId   String  @id @default(cuid())
-  standardName String
-  standardType String
-  title        String?
-  description  String?
-  reference    String?
-
-  analyzerRuleMappings AnalyzerRuleMapping[]
-}
-
-model Analyzer {
-  analyzerId   String  @id @default(cuid())
-  analyzerName String  @unique
-  description  String?
-  version      String?
-  isActive     Boolean @default(true)
-
-  analyzerRuleMappings AnalyzerRuleMapping[]
-  analyzerWeightages   AnalyzerWeightage[]
-}
-
-model AnalyzerRuleMapping {
-  mappingId    String   @id @default(cuid())
-  analyzerId   String
-  ruleId       String
-  standardName String
-  standardType String
-  confidence   Float
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  analyzer     Analyzer     @relation(fields: [analyzerId], references: [analyzerId])
-  standardPure StandardPure @relation(fields: [ruleId], references: [standardId])
-}
 
 model Language {
   languageId   String @id @default(cuid())
   languageName String @unique
-
-  analyzerWeightages AnalyzerWeightage[]
   projectLanguages   ProjectLanguage[]
-  globalBenchmarks   GlobalBenchmark[]
   comparisons        Comparison[]
 }
 
-model AnalyzerWeightage {
-  weightageId String   @id @default(cuid())
-  analyzerId  String
-  languageId  String
-  weightage   Float
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  analyzer Analyzer @relation(fields: [analyzerId], references: [analyzerId])
-  language Language @relation(fields: [languageId], references: [languageId])
-}
-
-// ─────────────────────────────────────────────
-// LLM
-// ─────────────────────────────────────────────
+ 
 
 model Provider {
   providerId   String   @id @default(cuid())
@@ -131,14 +77,11 @@ model Llm {
   isActive          Boolean @default(true)
 
   provider         Provider         @relation(fields: [providerId], references: [providerId])
-  globalBenchmarks GlobalBenchmark[]
   comparisons      Comparison[]
   codeSamples      CodeSample[]
 }
 
-// ─────────────────────────────────────────────
-// PROJECTS
-// ─────────────────────────────────────────────
+ 
 
 model Project {
   projectId    String   @id @default(cuid())
@@ -164,9 +107,7 @@ model ProjectLanguage {
   language Language @relation(fields: [languageId], references: [languageId])
 }
 
-// ─────────────────────────────────────────────
-// COMPARISONS & CODE SAMPLES
-// ─────────────────────────────────────────────
+ 
 
 model Comparison {
   comparisonId     String    @id @default(cuid())
@@ -192,7 +133,7 @@ model Comparison {
 model CodeSample {
   codeSampleId   String    @id @default(cuid())
   comparisonId   String
-  codeType       String    // e.g. "original", "generated"
+  codeType       String
   llmId          String?
   codeContent    String
   source         String?
@@ -206,18 +147,15 @@ model CodeSample {
   comparison       Comparison        @relation(fields: [comparisonId], references: [comparisonId])
   llm              Llm?              @relation(fields: [llmId], references: [llmId])
   vulnerabilities  Vulnerability[]
-  benchmarkScores  BenchmarkScore[]
   analyzerResults  AnalyzerResult[]
 }
 
-// ─────────────────────────────────────────────
-// ANALYZER RESULTS
-// ─────────────────────────────────────────────
+ 
 
 model AnalyzerResult {
   resultId       String   @id @default(cuid())
   codeSampleId   String
-  analyzerType   String   // "semgrep", "bandit", "sonar", "aiServer"
+  analyzerType   String
   rawOutput      Json     // Exact payload from analyzer
   executedAt     DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -227,32 +165,26 @@ model AnalyzerResult {
   @@unique([codeSampleId, analyzerType])
 }
 
-// ─────────────────────────────────────────────
-// VULNERABILITIES
-// ─────────────────────────────────────────────
+ 
 
 model Vulnerability {
   vulnerabilityId              String   @id @default(cuid())
   codeSampleId                 String
   
-  // Standard identifier & title
   ruleId                       String?
   name                         String?
   description                  String?
-  
-  // Semi-structured fields from SARIF (Store as raw JSON)
+
   message                      Json?
   locations                    Json?
   properties                   Json?
   fixes                        Json?
-  
-  // Common scalar fields
+
   level                        String?
   helpUri                      String?
   filePath                     String?
   lineNumber                   Int?
 
-  // Aggregate / Metrics fields
   severity                     String?
   severityScore                Float?
   confidence                   String?
@@ -269,42 +201,9 @@ model Vulnerability {
   chatConversations ChatConversation[]
 }
 
-// ─────────────────────────────────────────────
-// BENCHMARK SCORES
-// ─────────────────────────────────────────────
+ 
 
-model BenchmarkScore {
-  benchmarkId            String   @id @default(cuid())
-  codeSampleId           String
-  securityScore          Float?
-  qualityScore           Float?
-  overallBenchmarkIndex  Float?
-  isUpdateGlobal         Boolean  @default(false)
-  analyzerVersions       Json?
-  computationMetadata    Json?
-  createdAt              DateTime @default(now())
-
-  codeSample CodeSample @relation(fields: [codeSampleId], references: [codeSampleId])
-}
-
-model GlobalBenchmark {
-  globalBenchmarkId String   @id @default(cuid())
-  llmId             String
-  languageId        String
-  avgSecurityScore  Float?
-  avgQualityScore   Float?
-  avgOBI            Float?
-  totalComparisons  Int      @default(0)
-  lastUpdated       DateTime @updatedAt
-  severityDistribution Json?
-
-  llm      Llm      @relation(fields: [llmId], references: [llmId])
-  language Language @relation(fields: [languageId], references: [languageId])
-}
-
-// ─────────────────────────────────────────────
-// CHAT
-// ─────────────────────────────────────────────
+ 
 
 model ChatSession {
   chatSessionId String   @id @default(cuid())
@@ -325,7 +224,7 @@ model ChatConversation {
   messageText     String
   timestamp       DateTime @default(now())
   vulnerabilityId String?
-  type            String?  // e.g. "user", "assistant"
+  type            String?
   generatedOutput String?
   isHelpful       Boolean?
 

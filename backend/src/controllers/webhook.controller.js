@@ -9,9 +9,9 @@ export const clerkWebHook = async (req, res) => {
     const eventType = evt.type;
     const data = evt.data;
 
-    console.log(`📨 Clerk webhook received: ${eventType}`);
+    
 
-    // ─── user.created ───────────────────────────────────────────────────
+    
     if (eventType === "user.created") {
       const primaryEmail = data.email_addresses?.find(
         (e) => e.id === data.primary_email_address_id
@@ -20,7 +20,7 @@ export const clerkWebHook = async (req, res) => {
       const username =
         data.username ||
         primaryEmail?.split("@")[0] ||
-        data.id; // fallback to Clerk ID if nothing else exists
+        data.id;
 
       await prisma.user.create({
         data: {
@@ -33,10 +33,10 @@ export const clerkWebHook = async (req, res) => {
         },
       });
 
-      console.log(`✅ User created in DB: ${primaryEmail}`);
+      
     }
 
-    // ─── user.updated ───────────────────────────────────────────────────
+    
     else if (eventType === "user.updated") {
       const primaryEmail = data.email_addresses?.find(
         (e) => e.id === data.primary_email_address_id
@@ -53,23 +53,22 @@ export const clerkWebHook = async (req, res) => {
         },
       });
 
-      console.log(`✅ User updated in DB: ${data.id}`);
+      
     }
 
-    // ─── user.deleted ───────────────────────────────────────────────────
+    
     else if (eventType === "user.deleted") {
-      // Soft delete — keeps data intact but marks user as inactive
+      
       await prisma.user.update({
         where: { clerkUserId: data.id },
         data: { isActive: false },
       });
 
-      console.log(`🗑️ User soft-deleted in DB: ${data.id}`);
+      
     }
 
     return res.status(200).json({ received: true });
-  } catch (err) {
-    console.error("❌ Webhook error:", err.message);
-    return res.status(400).json({ error: "Webhook processing failed" });
-  }
+    } catch (err) {
+      return res.status(400).json({ error: "Webhook processing failed" });
+    }
 };

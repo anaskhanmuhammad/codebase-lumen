@@ -94,7 +94,6 @@ export default function ComparisonWinner({ results, rawAnalyzerResponses }) {
         Penalty: totalPenalty,
       });
 
-      // Tie-breaker: least penalty, then least security score, then least quality score
       if (totalPenalty < bestScore) {
         bestScore = totalPenalty;
         currentWinner = {

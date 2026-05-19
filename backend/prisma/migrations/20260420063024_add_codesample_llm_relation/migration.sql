@@ -1,2 +1,0 @@
--- AddForeignKey
-ALTER TABLE "CodeSample" ADD CONSTRAINT "CodeSample_llmId_fkey" FOREIGN KEY ("llmId") REFERENCES "Llm"("llmId") ON DELETE SET NULL ON UPDATE CASCADE;

@@ -152,7 +152,6 @@ function IssueCard({ issue, expanded, onToggle, code }) {
 
       {expanded && (
         <div className="border-t bg-muted/20 p-4 space-y-4">
-          {/* Code snippet around the issue line (if available) */}
           {issue.line && code && (
             (() => {
               const snippet = getCodeSnippet(code, issue.line, 1);
@@ -261,8 +260,6 @@ function buildDashboard(codeEntry) {
     payload: codeEntry?.analyzers?.[name] || null,
   })).filter((entry) => Boolean(entry.payload));
 
-  // Show findings as-is (no deduplication). Each SARIF result becomes its
-  // own issue entry. This preserves analyzer-specific findings and ordering.
   const analyzerStats = {};
   let totalFindings = 0;
   const allIssues = [];
@@ -322,7 +319,6 @@ function buildDashboard(codeEntry) {
 
       allIssues.push(issuePayload);
 
-      // also track per-analyzer issues (no deduplication)
       if (!analyzerIssues[name]) analyzerIssues[name] = [];
       analyzerIssues[name].push(issuePayload);
     }
@@ -377,7 +373,6 @@ export default function AnalyzerRawModal({ isOpen, onClose, codeEntry }) {
   const dashboard = useMemo(() => buildDashboard(codeEntry), [codeEntry]);
 
   useEffect(() => {
-    // default to the first available analyzer when dashboard updates
     const first = dashboard?.analyzerPayloads?.[0]?.name || null;
     setSelectedAnalyzer((prev) => prev || first);
   }, [dashboard]);

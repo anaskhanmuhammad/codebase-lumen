@@ -39,7 +39,6 @@ function SonarCodeSnippet({ snippet, startLine, highlightStart, highlightEnd, or
     const text = String(snippet).replace(/\n$/, "");
     lines = text.split("\n");
   } else {
-    // Fallback to extracting from the original source code
     const allLines = originalCode.split(/\r?\n/);
     const startIdx = Math.max(0, startLine - 3);
     const endIdx = Math.min(allLines.length - 1, (highlightEnd || startLine) + 2);
@@ -189,16 +188,13 @@ function SonarIssueCard({ issue, rule, expanded, onToggle, code }) {
 export default function SonarResultsView({ payload, code }) {
   const [expandedIssueId, setExpandedIssueId] = useState(null);
 
-  // Safely extract from SARIF payload
   const run = payload?.runs?.[0] || {};
   const results = run.results || [];
   const rules = run.tool?.driver?.rules || [];
   const topProperties = run.properties || {};
   
-  // Rule lookup map for fast details mapping
   const ruleMap = new Map(rules.map((r) => [r.id, r]));
 
-  // Calculate summary stats dynamically from results
   let codeSmellCount = 0;
   let bugCount = 0;
   let vulnCount = 0;

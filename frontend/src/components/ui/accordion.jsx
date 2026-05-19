@@ -4,7 +4,6 @@ import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Simple context to manage state
 const AccordionContext = React.createContext({});
 
 const Accordion = React.forwardRef(({ children, className, type, collapsible, defaultValue, ...props }, ref) => {
@@ -14,7 +13,6 @@ const Accordion = React.forwardRef(({ children, className, type, collapsible, de
     if (type === "single") {
        setValue(value === itemValue && collapsible ? "" : itemValue);
     } else {
-        // multiple not fully implemented but not used in my code
        setValue(itemValue);
     }
   };

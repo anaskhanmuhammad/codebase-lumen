@@ -46,7 +46,6 @@ export default function SourcegraphSearch() {
     setResults([]);
 
     try {
-      // Clean up the code for search - take first 50 chars or a meaningful snippet
       const searchQuery = code.trim().substring(0, 50);
       const query = encodeURIComponent(searchQuery);
 
@@ -107,7 +106,6 @@ export default function SourcegraphSearch() {
       }
     } catch (err) {
       setError(err.message || "Failed to search. Please try again.");
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -122,7 +120,6 @@ export default function SourcegraphSearch() {
   return (
     <div className="min-h-screen  p-6">
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
             <Code className="w-10 h-10" />

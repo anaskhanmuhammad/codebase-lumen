@@ -88,7 +88,6 @@ export default function Compare() {
     codeKey: null,
   });
 
-  // Track selected analyzers
   const [selectedAnalyses, setSelectedAnalyses] = useState({
     bandit: true,
     semgrep: false,
@@ -118,7 +117,6 @@ export default function Compare() {
       setError(null);
       setResults(null);
 
-      // Prepare selected analyzers
       const analyzers = [];
       if (selectedAnalyses.bandit)
         analyzers.push({ name: "bandit", fn: analyzeBandit });
@@ -129,12 +127,10 @@ export default function Compare() {
       if (selectedAnalyses.aiServer)
         analyzers.push({ name: "aiServer", fn: analyzeAiServer });
 
-      // Run selected analyses in parallel
       const resultsArray = await Promise.allSettled(
         analyzers.map((a) => a.fn(humanCode, llmCode, detectedLanguageKey))
       );
 
-      // Map results back to analyzer names
       const combinedResults = {};
       analyzers.forEach((a, i) => {
         const res = resultsArray[i];
@@ -154,7 +150,6 @@ export default function Compare() {
         );
       }
 
-      // Normalize results for raw-output modal by code sample
       const rawByCode = {
         human: {
           codeKey: "human",
@@ -219,7 +214,6 @@ export default function Compare() {
       <div className="max-w-7xl mx-auto space-y-6">
         <Header />
 
-        {/* Info Alert */}
         <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
           <AlertCircle className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-sm text-slate-700 dark:text-slate-300">
@@ -228,7 +222,6 @@ export default function Compare() {
           </AlertDescription>
         </Alert>
 
-        {/* Error */}
         {error && (
           <Alert className="border-red-200 bg-red-50 dark:bg-red-950/20">
             <XCircle className="h-4 w-4 text-red-600" />
@@ -238,7 +231,6 @@ export default function Compare() {
           </Alert>
         )}
 
-        {/* Code Inputs */}
         <div className="grid lg:grid-cols-2 gap-6">
           <CodeInputCard
             title="Human-Written Code"
@@ -256,7 +248,6 @@ export default function Compare() {
           />
         </div>
 
-        {/* Analyzer Selection */}
         <div className="mt-6">
           <h4 className="font-semibold mb-2">Select Analyses:</h4>
           <div className="flex flex-col md:flex-row gap-4">
@@ -283,7 +274,6 @@ export default function Compare() {
           </div>
         </div>
 
-        {/* Action Buttons */}
         <ActionButtons
           isAnalyzing={isAnalyzing}
           humanCode={humanCode}
@@ -292,7 +282,6 @@ export default function Compare() {
           onClear={handleClear}
         />
 
-        {/* Results */}
         {results && results.length > 0 && (
           <div className="mt-8 space-y-6">
             <h2 className="text-xl font-bold">Analysis Results</h2>
