@@ -161,11 +161,6 @@ async function generateByProvider({ providerName, apiKey, modelIdentifier, promp
   throw new Error(`Provider '${providerName}' is not supported for generation yet`);
 }
 
-/**
- * POST /projects/:projectId/comparisons
- * Creates a new comparison under a project.
- * Body: { name, type }
- */
 export const createComparison = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -184,7 +179,6 @@ export const createComparison = async (req, res) => {
       return res.status(400).json({ error: "Valid comparison type is required" });
     }
 
-    // Resolve internal userId
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -194,7 +188,6 @@ export const createComparison = async (req, res) => {
       return res.status(404).json({ error: "User not found in database" });
     }
 
-    // Verify project belongs to user
     const project = await prisma.project.findUnique({
       where: { projectId },
       select: { userId: true },
@@ -208,7 +201,6 @@ export const createComparison = async (req, res) => {
       return res.status(403).json({ error: "Forbidden: You do not own this project" });
     }
 
-    // Create comparison
     const comparison = await prisma.comparison.create({
       data: {
         projectId,
@@ -222,16 +214,11 @@ export const createComparison = async (req, res) => {
     });
 
     return res.status(201).json({ comparison });
-  } catch (error) {
-    console.error("Error creating comparison:", error);
-    return res.status(500).json({ error: "Failed to create comparison" });
-  }
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to create comparison" });
+    }
 };
 
-/**
- * GET /projects/:projectId/comparisons/:comparisonId
- * Fetches a single comparison by ID.
- */
 export const getComparisonById = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -241,7 +228,6 @@ export const getComparisonById = async (req, res) => {
 
     const { projectId, comparisonId } = req.params;
 
-    // Resolve internal userId
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -251,7 +237,6 @@ export const getComparisonById = async (req, res) => {
       return res.status(404).json({ error: "User not found in database" });
     }
 
-    // Verify project belongs to user
     const project = await prisma.project.findUnique({
       where: { projectId },
       select: { userId: true },
@@ -265,7 +250,6 @@ export const getComparisonById = async (req, res) => {
       return res.status(403).json({ error: "Forbidden: You do not own this project" });
     }
 
-    // Get comparison
     const comparison = await prisma.comparison.findUnique({
       where: { comparisonId },
       include: {
@@ -282,22 +266,11 @@ export const getComparisonById = async (req, res) => {
     }
 
     return res.status(200).json({ comparison });
-  } catch (error) {
-    console.error("Error fetching comparison:", error);
-    return res.status(500).json({ error: "Failed to fetch comparison" });
-  }
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to fetch comparison" });
+    }
 };
 
-/**
- * POST /projects/:projectId/comparisons/:comparisonId/complete
- * Persists comparison code samples, analyzer results, and marks comparison as completed.
- * Body: {
- *   humanCode?: string,
- *   llmSamples: [{ llmName: string, codeContent: string, generatedBaselineCode?: string | null, generatedPromptText?: string | null }],
- *   rawAnalyzerResponses?: { [codeKey]: { codeKey, label, analyzers: { semgrep, bandit, sonar, aiServer } } },
- *   detectedLanguageName: string
- * }
- */
 export const completeComparison = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -316,7 +289,6 @@ export const completeComparison = async (req, res) => {
       return res.status(400).json({ error: "Detected language name is required" });
     }
 
-    // Resolve internal userId
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -326,7 +298,6 @@ export const completeComparison = async (req, res) => {
       return res.status(404).json({ error: "User not found in database" });
     }
 
-    // Verify project belongs to user
     const project = await prisma.project.findUnique({
       where: { projectId },
       select: { userId: true },
@@ -444,12 +415,10 @@ export const completeComparison = async (req, res) => {
       });
     });
 
-    // Map codeKeys to codeSampleIds for analyzer results
     const codeKeyToCodeSampleIdMap = {};
     const analyzerResultsToCreate = [];
 
     await prisma.$transaction(async (tx) => {
-      // Create code samples and track the mapping
       let codeKeyIndex = 0;
       const hasHumanSample = typeof humanCode === "string" && humanCode.trim().length > 0;
       const codeKeys = [
@@ -464,7 +433,6 @@ export const completeComparison = async (req, res) => {
         codeKeyIndex++;
       }
 
-      // Create analyzer results if provided
       if (rawAnalyzerResponses && typeof rawAnalyzerResponses === "object") {
         for (const [codeKey, codeEntry] of Object.entries(rawAnalyzerResponses)) {
           const codeSampleId = codeKeyToCodeSampleIdMap[codeKey];
@@ -483,18 +451,13 @@ export const completeComparison = async (req, res) => {
         }
 
         if (analyzerResultsToCreate.length > 0) {
-          console.log(`[COMPARISON] Creating ${analyzerResultsToCreate.length} analyzer results`);
           await tx.analyzerResult.createMany({
             data: analyzerResultsToCreate,
           });
 
-          console.log(`[COMPARISON] Processing analyzer results for vulnerability ingestion`);
           for (const analyzerResult of analyzerResultsToCreate) {
             const analyzerType = String(analyzerResult.analyzerType).toLowerCase();
-            console.log(`[COMPARISON] Analyzer type: "${analyzerType}" (raw: "${analyzerResult.analyzerType}")`);
-            
             if (analyzerType === "bandit") {
-              console.log(`[COMPARISON] Triggering Bandit ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
               await ingestBanditVulnerabilities({
                 tx,
                 codeSampleId: analyzerResult.codeSampleId,
@@ -506,7 +469,6 @@ export const completeComparison = async (req, res) => {
           for (const analyzerResult of analyzerResultsToCreate) {
             const analyzerType = String(analyzerResult.analyzerType).toLowerCase();
             if (analyzerType === "semgrep") {
-              console.log(`[COMPARISON] Triggering Semgrep ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
               await ingestSemgrepVulnerabilities({
                 tx,
                 codeSampleId: analyzerResult.codeSampleId,
@@ -514,7 +476,6 @@ export const completeComparison = async (req, res) => {
               });
             }
             if (analyzerType === "sonar" || analyzerType === "sonarqube") {
-              console.log(`[COMPARISON] Triggering SonarQube ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
               await ingestSonarQubeVulnerabilities({
                 tx,
                 codeSampleId: analyzerResult.codeSampleId,
@@ -526,7 +487,6 @@ export const completeComparison = async (req, res) => {
               analyzerType === "ai_server" ||
               analyzerType === "ai-server"
             ) {
-              console.log(`[COMPARISON] Triggering AI Server ingestion for codeSampleId: ${analyzerResult.codeSampleId}`);
               await ingestAiServerVulnerabilities({
                 tx,
                 codeSampleId: analyzerResult.codeSampleId,
@@ -598,16 +558,11 @@ export const completeComparison = async (req, res) => {
       codeSamples,
       vulnerabilitiesByCode,
     });
-  } catch (error) {
-    console.error("Error completing comparison:", error);
-    return res.status(500).json({ error: "Failed to complete comparison" });
-  }
+    } catch (error) {
+      return res.status(500).json({ error: "Failed to complete comparison" });
+    }
 };
 
-/**
- * GET /projects/:projectId/comparisons/:comparisonId/completed-data
- * Returns persisted code samples and selected LLMs for a completed comparison.
- */
 export const getCompletedComparisonData = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -709,15 +664,10 @@ export const getCompletedComparisonData = async (req, res) => {
         .filter(Boolean),
     });
   } catch (error) {
-    console.error("Error fetching completed comparison data:", error);
     return res.status(500).json({ error: "Failed to fetch completed comparison data" });
   }
 };
 
-/**
- * GET /projects/:projectId/comparisons/:comparisonId/code-samples/:codeSampleId/analyzer-results
- * Retrieves all raw analyzer results for a specific code sample.
- */
 export const getAnalyzerResults = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -809,19 +759,10 @@ export const getAnalyzerResults = async (req, res) => {
       vulnerabilities,
     });
   } catch (error) {
-    console.error("Error fetching analyzer results:", error);
     return res.status(500).json({ error: "Failed to fetch analyzer results" });
   }
 };
 
-/**
- * POST /projects/:projectId/comparisons/:comparisonId/generate
- * Generates code for selected LLM targets using user provider API keys.
- * Body: {
- *   promptText: string,
- *   targets: [{ targetIndex: number, llmName: string }]
- * }
- */
 export const generateComparisonCode = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -1009,7 +950,6 @@ export const generateComparisonCode = async (req, res) => {
       results,
     });
   } catch (error) {
-    console.error("Error generating comparison code:", error);
     return res.status(500).json({ error: "Failed to generate code for selected LLMs" });
   }
 };

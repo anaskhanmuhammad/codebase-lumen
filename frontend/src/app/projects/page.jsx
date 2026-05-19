@@ -18,7 +18,6 @@ import {
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
-// ─── New Project Modal ────────────────────────────────────────────────────────
 
 function NewProjectModal({ onClose, onCreated, getToken }) {
   const [projectName, setProjectName] = useState("");
@@ -65,7 +64,6 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
     }
   };
 
-  // Close on Escape key
   useEffect(() => {
     const handleKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", handleKey);
@@ -73,13 +71,11 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
   }, [onClose]);
 
   return (
-    // Backdrop
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="relative w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl mx-4">
-        {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold">New Project</h2>
           <button
@@ -90,9 +86,7 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
           </button>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Project Name */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="projectName">
               Project Name <span className="text-destructive">*</span>
@@ -108,7 +102,6 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
             />
           </div>
 
-          {/* Description */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="description">
               Description{" "}
@@ -126,10 +119,8 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
             />
           </div>
 
-          {/* Error */}
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          {/* Actions */}
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
@@ -153,7 +144,6 @@ function NewProjectModal({ onClose, onCreated, getToken }) {
   );
 }
 
-// ─── Projects Page ────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
   const { getToken } = useAuth();
@@ -169,7 +159,6 @@ export default function ProjectsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
 
-  // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -178,7 +167,6 @@ export default function ProjectsPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Fetch languages for filter dropdown
   useEffect(() => {
     async function fetchLanguages() {
       try {
@@ -190,14 +178,12 @@ export default function ProjectsPage() {
           const data = await res.json();
           setLanguages(data.languages || []);
         }
-      } catch (err) {
-        console.error("Failed to fetch languages:", err);
+      } catch {
       }
     }
     fetchLanguages();
   }, [getToken]);
 
-  // Fetch projects
   const fetchProjects = useCallback(async () => {
     setLoading(true);
     try {
@@ -216,8 +202,7 @@ export default function ProjectsPage() {
         setTotalPages(data.totalPages || 1);
         setTotal(data.total || 0);
       }
-    } catch (err) {
-      console.error("Failed to fetch projects:", err);
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -229,7 +214,6 @@ export default function ProjectsPage() {
 
   const handleProjectCreated = (newProject) => {
     setShowModal(false);
-    // Optimistically prepend the new project then refetch to get accurate total
     setProjects((prev) => [newProject, ...prev]);
     setTotal((prev) => prev + 1);
     fetchProjects();
@@ -253,7 +237,6 @@ export default function ProjectsPage() {
       )}
 
       <div className="space-y-6">
-        {/* Page Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
@@ -270,7 +253,6 @@ export default function ProjectsPage() {
           </button>
         </div>
 
-        {/* Search & Filter */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -302,7 +284,6 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {/* Projects Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -374,7 +355,6 @@ export default function ProjectsPage() {
               ))}
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 pt-4">
                 <button

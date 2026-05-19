@@ -21,8 +21,6 @@ import {
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
-
 function StatusBadge({ status }) {
   const map = {
     completed: {
@@ -61,8 +59,6 @@ function StatusBadge({ status }) {
     </span>
   );
 }
-
-// ─── New Comparison Modal ───────────────────────────────────────────────────
 
 function NewComparisonModal({ onClose, onCreated, getToken, projectId }) {
   const [name, setName] = useState("");
@@ -190,8 +186,6 @@ function NewComparisonModal({ onClose, onCreated, getToken, projectId }) {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function ProjectDetailPage() {
   const { getToken } = useAuth();
   const { projectId } = useParams();
@@ -203,7 +197,6 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
 
-  // Fetch the project data
   const fetchProject = async () => {
     try {
       const token = await getToken();
@@ -226,7 +219,6 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (projectId) fetchProject();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getToken, projectId]);
 
   const fetchProjectLanguages = async () => {
@@ -247,12 +239,11 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (projectId) fetchProjectLanguages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getToken, projectId]);
 
   const handleCreated = () => {
     setShowModal(false);
-    fetchProject(); // Refresh the list
+    fetchProject();
   };
 
   const formatDate = (dateStr) =>

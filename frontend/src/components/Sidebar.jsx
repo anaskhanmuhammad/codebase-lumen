@@ -32,12 +32,10 @@ export default function AppSidebar() {
   return (
     <Sidebar className="border-r bg-background/50 backdrop-blur-sm">
       <SidebarContent>
-        {/* === MAIN SECTION === */}
         <SidebarGroup>
           <SidebarGroupLabel>Overview</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {/* Dashboard (Collapsible) */}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={() => setIsDashboardOpen(!isDashboardOpen)}
@@ -70,7 +68,6 @@ export default function AppSidebar() {
                 )}
               </SidebarMenuItem>
 
-              {/* Projects */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link href="/projects">
@@ -80,7 +77,6 @@ export default function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {/* Scan Dockerfile */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link href="/scan-dockerfile">
@@ -90,7 +86,6 @@ export default function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {/* API Keys */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link href="/api-keys">
@@ -100,7 +95,6 @@ export default function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {/* Settings */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link href="/compare">
@@ -109,8 +103,6 @@ export default function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
 
-                {/* Code Search */}
-
                 <SidebarMenuButton asChild>
                   <Link href="/code-search">
                     <SearchCode className="mr-2 h-4 w-4" />
@@ -118,7 +110,6 @@ export default function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
 
-                {/* leaderboard */}
                 <SidebarMenuButton asChild>
                   <Link href="/llm-leaderboard">
                     <SearchCode className="mr-2 h-4 w-4" />

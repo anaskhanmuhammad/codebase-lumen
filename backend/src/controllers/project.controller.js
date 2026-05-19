@@ -4,11 +4,6 @@ import { refreshProjectLanguages } from "../services/projectLanguage.service.js"
 const prisma = new PrismaClient();
 
 
-/**
- * GET /projects
- * Returns paginated list of projects for the authenticated user.
- * Query params: search, language, page, limit
- */
 export const getProjects = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -16,7 +11,6 @@ export const getProjects = async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // Resolve internal DB userId from Clerk ID
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -37,7 +31,6 @@ export const getProjects = async (req, res) => {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
-    // Build dynamic where clause
     const where = { userId };
 
     if (search) {
@@ -70,15 +63,10 @@ export const getProjects = async (req, res) => {
       totalPages: Math.ceil(total / limitNum),
     });
   } catch (error) {
-    console.error("Error fetching projects:", error);
     return res.status(500).json({ error: "Failed to fetch projects" });
   }
 };
 
-/**
- * GET /projects/languages
- * Returns distinct topLanguage values for the user (for filter dropdown)
- */
 export const getProjectLanguages = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -86,7 +74,6 @@ export const getProjectLanguages = async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // Resolve internal DB userId from Clerk ID
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -107,15 +94,10 @@ export const getProjectLanguages = async (req, res) => {
       languages: languages.map((l) => l.topLanguage),
     });
   } catch (error) {
-    console.error("Error fetching project languages:", error);
     return res.status(500).json({ error: "Failed to fetch languages" });
   }
 };
 
-/**
- * GET /projects/llms
- * Returns active LLM models for dropdowns.
- */
 export const getAvailableLlms = async (req, res) => {
   try {
     const llmsRaw = await prisma.llm.findMany({
@@ -144,17 +126,10 @@ export const getAvailableLlms = async (req, res) => {
 
     return res.json({ llms });
   } catch (error) {
-    console.error("Error fetching available LLMs:", error);
     return res.status(500).json({ error: "Failed to fetch LLMs" });
   }
 };
 
-/**
- * POST /projects
- * Creates a new project for the authenticated user.
- * Body: { projectName, description? }
- * topLanguage is intentionally excluded — the system sets it automatically later.
- */
 export const createProject = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -168,7 +143,6 @@ export const createProject = async (req, res) => {
       return res.status(400).json({ error: "Project name is required" });
     }
 
-    // Resolve internal userId from Clerk ID
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -183,21 +157,15 @@ export const createProject = async (req, res) => {
         userId: user.userId,
         projectName: projectName.trim(),
         description: description?.trim() || null,
-        // topLanguage is left null — system will populate it later
       },
     });
 
     return res.status(201).json({ project });
   } catch (error) {
-    console.error("Error creating project:", error);
     return res.status(500).json({ error: "Failed to create project" });
   }
 };
 
-/**
- * GET /projects/:projectId
- * Returns a single project (with its comparisons) for the authenticated user.
- */
 export const getProjectById = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -205,7 +173,6 @@ export const getProjectById = async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // Resolve internal DB userId
     const user = await prisma.user.findUnique({
       where: { clerkUserId },
       select: { userId: true },
@@ -235,21 +202,14 @@ export const getProjectById = async (req, res) => {
 
     return res.json({ project });
   } catch (error) {
-    console.error("Error fetching project:", error);
     return res.status(500).json({ error: "Failed to fetch project" });
   }
 };
 
-/**
- * GET /projects/benchmarks/llm-leaderboard-dataset
- * Returns the raw dataset needed for real-time benchmarking.
- * Includes completed comparison LLM code samples with analyzer raw outputs.
- * NOTE: This does not store or persist any benchmark scores.
- */
 export const getLlmLeaderboardDataset = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
-    const { mode = "global", projectIds } = req.query; // 'global' or 'local'
+    const { mode = "global", projectIds } = req.query;
 
     if (!clerkUserId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -264,7 +224,6 @@ export const getLlmLeaderboardDataset = async (req, res) => {
       return res.status(404).json({ error: "User not found in database" });
     }
 
-    // Always fetch all projects owned by the user to populate the frontend dropdown
     const allUserProjects = await prisma.project.findMany({
       where: { userId: user.userId },
       select: { projectId: true, projectName: true },
@@ -352,12 +311,9 @@ export const getLlmLeaderboardDataset = async (req, res) => {
       return res.status(200).json({ samples, projects: allUserProjects });
     }
 
-    // Handle specific project filtering for Local Leaderboard
     let projectIdFilter = undefined;
     if (mode === "local" && projectIds !== undefined) {
       const selectedIds = projectIds.split(",").filter(Boolean);
-      
-      // If no projects are selected in local mode, return empty results early
       if (selectedIds.length === 0) {
         return res.status(200).json({ samples:[], projects: allUserProjects });
       }
@@ -386,7 +342,6 @@ export const getLlmLeaderboardDataset = async (req, res) => {
       return res.status(200).json({ samples:[], projects: allUserProjects });
     }
 
-    // For Global: isOriginal MUST be true. For Local: ignore isOriginal (gets true & false)
     const isOriginalFilter = mode === "global" ? true : undefined;
 
     const samplesRaw = await prisma.codeSample.findMany({
@@ -466,15 +421,10 @@ export const getLlmLeaderboardDataset = async (req, res) => {
 
     return res.status(200).json({ samples, projects: allUserProjects });
   } catch (error) {
-    console.error("Error fetching LLM leaderboard dataset:", error);
     return res.status(500).json({ error: "Failed to fetch benchmark dataset" });
   }
 };
 
-/**
- * GET /projects/:projectId/languages
- * Returns language breakdown for a single project and persists it.
- */
 export const getProjectLanguageBreakdown = async (req, res) => {
   try {
     const clerkUserId = req.auth()?.userId;
@@ -510,7 +460,6 @@ export const getProjectLanguageBreakdown = async (req, res) => {
       languages: breakdown.languages,
     });
   } catch (error) {
-    console.error("Error fetching project language breakdown:", error);
     return res.status(500).json({ error: "Failed to fetch project language breakdown" });
   }
 };

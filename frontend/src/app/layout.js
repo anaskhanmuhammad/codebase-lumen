@@ -42,20 +42,15 @@ export default function RootLayout({ children }) {
           >
             <SidebarProvider>
               <div className="flex h-full w-full">
-                {/* 🧭 Sidebar */}
                 <AppSidebar />
 
-                {/* 📦 Main content area */}
                 <div className="flex flex-col flex-1 min-w-0 h-full ">
-                  {/* Header */}
                   <header className="flex items-center justify-between px-4 border-b h-16 shrink-0">
-                    {/* Left side */}
                     <div className="flex items-center">
                       <SidebarTrigger className="mr-2" />
                       <h1 className="text-lg font-semibold">Lumen Dashboard</h1>
                     </div>
 
-                    {/* Right side */}
                     <div className="flex items-center gap-4">
                       <SignedOut>
                         <SignInButton />
@@ -71,7 +66,6 @@ export default function RootLayout({ children }) {
                     </div>
                   </header>
 
-                  {/* Main content */}
                   <main className="flex-1 p-6 overflow-y-auto min-w-0">
                     {children}
                   </main>

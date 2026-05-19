@@ -41,7 +41,6 @@ function BanditCodeSnippet({ snippet, startLine, highlightStart, highlightEnd, o
     const text = snippet.replace(/\n$/, "");
     lines = text.split("\n");
   } else {
-    // Fallback to extracting from the original source code
     const allLines = originalCode.split(/\r?\n/);
     const startIdx = Math.max(0, startLine - 3);
     const endIdx = Math.min(allLines.length - 1, (highlightEnd || startLine) + 2);
@@ -181,7 +180,6 @@ function BanditIssueCard({ issue, rule, expanded, onToggle, code }) {
 export default function BanditResultsView({ payload, code }) {
   const [expandedIssueId, setExpandedIssueId] = useState(null);
 
-  // Safely extract from SARIF payload
   const run = payload?.runs?.[0] || {};
   const invocations = run.invocations || [];
   const runProperties = run.properties || {};
@@ -189,7 +187,6 @@ export default function BanditResultsView({ payload, code }) {
   const results = run.results || [];
   const rules = run.tool?.driver?.rules || [];
   
-  // Rule lookup map for fast details mapping
   const ruleMap = new Map(rules.map((r) => [r.id, r]));
 
   const summary = {

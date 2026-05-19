@@ -253,7 +253,6 @@ export const listUserApiKeys = async (req, res) => {
 
     return res.json({ apiKeys });
   } catch (error) {
-    console.error("Error listing API keys:", error);
     return res.status(500).json({ error: "Failed to list API keys" });
   }
 };
@@ -286,7 +285,6 @@ export const listAvailableApiProviders = async (req, res) => {
       providers: providerRows.map((row) => row.provider),
     });
   } catch (error) {
-    console.error("Error listing available API providers:", error);
     return res.status(500).json({ error: "Failed to list available providers" });
   }
 };
@@ -311,7 +309,6 @@ export const createUserApiKey = async (req, res) => {
 
     return res.status(result.status).json(result.body);
   } catch (error) {
-    console.error("Error creating API key:", error);
     return res.status(500).json({ error: "Failed to create API key" });
   }
 };
@@ -365,7 +362,6 @@ export const retestUserApiKey = async (req, res) => {
 
     return res.json({ apiKey: updated });
   } catch (error) {
-    console.error("Error retesting API key:", error);
     return res.status(500).json({ error: "Failed to retest API key" });
   }
 };
@@ -427,7 +423,6 @@ export const updateUserApiKey = async (req, res) => {
 
     return res.json({ apiKey: updated });
   } catch (error) {
-    console.error("Error updating API key:", error);
     return res.status(500).json({ error: "Failed to update API key" });
   }
 };
@@ -458,7 +453,6 @@ export const deleteUserApiKey = async (req, res) => {
 
     return res.json({ success: true });
   } catch (error) {
-    console.error("Error deleting API key:", error);
     return res.status(500).json({ error: "Failed to delete API key" });
   }
 };

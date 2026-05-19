@@ -27,7 +27,6 @@ const ScanDockerFile = () => {
     e.preventDefault();
     setLoading(true);
 
-    // Simulate API call delay
     setTimeout(() => {
       const validationResults = validateDockerfile(dockerfileContent);
       setResults(validationResults);
@@ -111,7 +110,6 @@ const ScanDockerFile = () => {
   return (
     <div className="min-h-screen p-6">
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold  mb-2">
             Dockerfile Security Scanner
@@ -122,9 +120,7 @@ const ScanDockerFile = () => {
           </p>
         </div>
 
-        {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Input Section */}
           <div className="lg:col-span-2">
             <Card className="p-6 border-2">
               <form onSubmit={handleAnalyze}>
@@ -194,7 +190,6 @@ CMD ["node", "server.js"]`
             </Card>
           </div>
 
-          {/* Quick Stats */}
           <div>
             <Card className="p-6 border-2  sticky top-6">
               <h2 className="text-lg font-bold  mb-4">
@@ -267,11 +262,8 @@ CMD ["node", "server.js"]`
           </div>
         </div>
 
-        {/* Results Section */}
         {results && (
           <div className="mt-8">
-
-            {/* Violations List */}
             {results.violations.length > 0 ? (
               <Tabs defaultValue="all" className=" rounded-lg border-2">
                 <TabsList className="grid w-full grid-cols-5 p-1 m-1">
@@ -351,7 +343,6 @@ CMD ["node", "server.js"]`
           </div>
         )}
 
-        {/* Footer Info */}
         {!results && (
           <Card className="mt-8 p-6  border-2 border-blue-200">
             <h3 className="font-bold  mb-3">📋 What We Check</h3>

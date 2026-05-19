@@ -32,7 +32,6 @@ function SemgrepCodeSnippet({ snippet, startLine, highlightStart, highlightEnd, 
     const text = String(snippet).replace(/\n$/, "");
     lines = text.split("\n");
   } else {
-    // Fallback to extracting from the original source code
     const allLines = originalCode.split(/\r?\n/);
     const startIdx = Math.max(0, startLine - 3);
     const endIdx = Math.min(allLines.length - 1, (highlightEnd || startLine) + 2);
@@ -227,16 +226,13 @@ function SemgrepIssueCard({ issue, rule, expanded, onToggle, code }) {
 export default function SemgrepResultsView({ payload, code }) {
   const [expandedIssueId, setExpandedIssueId] = useState(null);
 
-  // Safely extract from SARIF payload
   const run = payload?.runs?.[0] || {};
   const invocations = run.invocations || [];
   const results = run.results || [];
   const rules = run.tool?.driver?.rules || [];
   
-  // Rule lookup map for fast details mapping
   const ruleMap = new Map(rules.map((r) => [r.id, r]));
 
-  // Calculate summary stats dynamically from results utilizing their rule fallbacks
   let errorCount = 0;
   let warningCount = 0;
   let noteCount = 0;
@@ -253,11 +249,8 @@ export default function SemgrepResultsView({ payload, code }) {
     if (res.fixes && res.fixes.length > 0) fixableCount++;
   });
 
-  // fallback matcher if ruleId is somehow missing from result but might be implicitly linked
-  // (In proper SARIF 2.1.0, result.ruleId should match rule.id).
   function resultMatchedRuleByFingerprint(res, rm) {
     if (res.ruleId) return rm.get(res.ruleId);
-    // If not found, try to look at rules to see if only one exists or find a match
     if (rm.size === 1) return Array.from(rm.values())[0];
     return null;
   }

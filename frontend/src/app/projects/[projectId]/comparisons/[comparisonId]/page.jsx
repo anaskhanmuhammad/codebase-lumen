@@ -124,7 +124,6 @@ export default function ComparisonPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [results, setResults] = useState(null);
 
-  // Raw payloads are stored code-wise: human, llm-0, llm-1, ...
   const [rawAnalyzerResponses, setRawAnalyzerResponses] = useState({});
   const [rawResultsModalState, setRawResultsModalState] = useState({
     isOpen: false,
@@ -196,7 +195,6 @@ export default function ComparisonPage() {
               setLlmGeneratedPrompts(llmSamples.map((sample) => sample.promptUsed || null));
             }
 
-            // Fetch analyzer results for all code samples
             const allSamples = [
               completedData.humanSample,
               ...(completedData.llmSamples || []),
@@ -205,7 +203,6 @@ export default function ComparisonPage() {
             const rawByCode = {};
             const resultItems = [];
 
-            // Map samples to codeKeys
             const codeKeyMap = {};
             if (completedData.humanSample) {
               codeKeyMap[completedData.humanSample.codeSampleId] = {
@@ -220,7 +217,6 @@ export default function ComparisonPage() {
               };
             });
 
-            // Fetch analyzer results for each code sample
             await Promise.all(
               allSamples.map(async (sample) => {
                 try {
@@ -235,7 +231,6 @@ export default function ComparisonPage() {
                     const analyzerData = await analyzerRes.json();
                     const { codeKey, label } = codeKeyMap[sample.codeSampleId];
 
-                    // Transform results into analyzer payloads
                     const analyzers = {
                       bandit: null,
                       semgrep: null,
@@ -263,7 +258,6 @@ export default function ComparisonPage() {
                     });
                   }
                 } catch (err) {
-                  console.warn(`Failed to fetch analyzer results for sample ${sample.codeSampleId}:`, err);
                 }
               })
             );

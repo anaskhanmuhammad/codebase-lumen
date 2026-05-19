@@ -253,7 +253,6 @@ export default function LLMLeaderboard() {
   const[error, setError] = useState("");
   const [samples, setSamples] = useState(null);
 
-  // Benchmarking State Features
   const [mode, setMode] = useState("global"); // 'global' | 'local'
   const [availableProjects, setAvailableProjects] = useState([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState([]);
@@ -284,10 +283,8 @@ export default function LLMLeaderboard() {
 
       setSamples(Array.isArray(data?.samples) ? data.samples :[]);
       
-      // Populate projects array if returned
       if (data?.projects) {
         setAvailableProjects(data.projects);
-        // On very first load, pre-select all projects automatically
         setSelectedProjectIds((prev) => 
           prev.length === 0 ? data.projects.map(p => p.projectId) : prev
         );
@@ -300,7 +297,6 @@ export default function LLMLeaderboard() {
     }
   }, [getToken, mode, selectedProjectIds]);
 
-  // Initial auto-fetch & refetch when mode toggles
   const runBenchmarkRef = useRef(runBenchmark);
   useEffect(() => {
     runBenchmarkRef.current = runBenchmark;
@@ -308,7 +304,7 @@ export default function LLMLeaderboard() {
 
   useEffect(() => {
     runBenchmarkRef.current();
-  }, [mode]); // Triggers when user switches between Global/Local
+  }, [mode]);
 
   const rows = useMemo(() => {
     if (!samples) return [];
