@@ -2,9 +2,12 @@
 
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
 import scanner from "sonarqube-scanner";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
 const SONARQUBE_URL = process.env.SONARQUBE_URL || "http://localhost:9000";
 const SONARQUBE_TOKEN = process.env.SONARQUBE_TOKEN;
@@ -14,6 +17,8 @@ if (!SONARQUBE_TOKEN) {
 }
 
 const TEMP_DIR = path.join(process.cwd(), "temp_analysis");
+const REPO_SCAN_MAX_MB = Number(process.env.REPO_SCAN_MAX_MB || "200");
+const execFileAsync = promisify(execFile);
 
 const SONAR_LANGUAGE_MAP = {
   python: "py",
@@ -169,6 +174,85 @@ function createSonarSarifResponse(issuesResponse, componentKey, ruleMetaMap = {}
   };
 }
 
+function parseGitHubRepoUrl(repoUrl) {
+  const normalized = String(repoUrl || "").trim();
+  const match = normalized.match(/^https:\/\/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?\/?$/i);
+  if (!match) return null;
+
+  const owner = match[1];
+  const repo = match[2];
+  return {
+    owner,
+    repo,
+    normalizedUrl: `https://github.com/${owner}/${repo}.git`,
+  };
+}
+
+async function fetchGitHubRepoInfo(owner, repo) {
+  const { data } = await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+    headers: { "User-Agent": "lumen-repo-scanner" },
+  });
+  return {
+    defaultBranch: data?.default_branch || "main",
+    sizeKb: typeof data?.size === "number" ? data.size : null,
+    isPrivate: Boolean(data?.private),
+  };
+}
+
+async function fetchGitHubBranches(owner, repo) {
+  const { data } = await axios.get(
+    `https://api.github.com/repos/${owner}/${repo}/branches`,
+    {
+      headers: { "User-Agent": "lumen-repo-scanner" },
+      params: { per_page: 100 },
+    }
+  );
+
+  if (!Array.isArray(data)) return [];
+  return data.map((branch) => branch?.name).filter(Boolean);
+}
+
+async function getDirectorySizeBytes(dirPath) {
+  let total = 0;
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += await getDirectorySizeBytes(fullPath);
+    } else if (entry.isFile()) {
+      const stats = await fs.stat(fullPath);
+      total += stats.size;
+    }
+  }
+
+  return total;
+}
+
+function summarizeSarif(sarif) {
+  const results = sarif?.runs?.[0]?.results || [];
+  let critical = 0;
+  let major = 0;
+  let minor = 0;
+  let info = 0;
+
+  for (const result of results) {
+    const sev = String(result?.properties?.severity || "").toUpperCase();
+    if (sev === "BLOCKER" || sev === "CRITICAL") critical += 1;
+    else if (sev === "MAJOR") major += 1;
+    else if (sev === "MINOR") minor += 1;
+    else info += 1;
+  }
+
+  return {
+    total: results.length,
+    critical,
+    major,
+    minor,
+    info,
+  };
+}
+
 export async function analyzeCode(humanCode, llmCode, language = "javascript") {
   let sessionId;
   let projectKey;
@@ -196,7 +280,8 @@ export async function analyzeCode(humanCode, llmCode, language = "javascript") {
     );
 
     // Run combined analysis
-    await runSonarAnalysis(projectDir, projectKey, fileExtension);
+    const sonarInclusions = [`human.${fileExtension}`, `llm.${fileExtension}`].join(",");
+    await runSonarAnalysis(projectDir, projectKey, sonarInclusions);
 
     // Fetch results for each file
     // Component key format in SonarQube is "projectKey:fileName"
@@ -237,7 +322,7 @@ export async function analyzeCode(humanCode, llmCode, language = "javascript") {
   }
 }
 
-async function runSonarAnalysis(projectDir, projectKey, fileExtension) {
+async function runSonarAnalysis(projectDir, projectKey, sonarInclusions) {
   console.log(`Running SonarQube scanner for ${projectKey}...`);
 
   const cachePath = path.resolve(process.cwd(), "../.cache/sonarqube");
@@ -247,9 +332,6 @@ async function runSonarAnalysis(projectDir, projectKey, fileExtension) {
 
   // Enforce 2GB memory limit
   process.env.SONAR_SCANNER_OPTS = "-Xmx2048m";
-
-  const scannedFiles = ["human", "llm"];
-  const sonarInclusions = scannedFiles.map((name) => `${name}.${fileExtension}`).join(",");
 
   // Use NPM sonarqube-scanner
   await new Promise((resolve, reject) => {
@@ -262,7 +344,7 @@ async function runSonarAnalysis(projectDir, projectKey, fileExtension) {
           "sonar.projectName": projectKey,
           "sonar.projectBaseDir": projectDir,
           "sonar.sources": ".",
-          "sonar.inclusions": sonarInclusions,
+          ...(sonarInclusions ? { "sonar.inclusions": sonarInclusions } : {}),
           "sonar.filesize.limit": "100",
           "sonar.javascript.maxFileSize": "100000",
           "sonar.typescript.maxFileSize": "100000",
@@ -284,6 +366,103 @@ async function runSonarAnalysis(projectDir, projectKey, fileExtension) {
       },
     );
   });
+}
+
+export async function fetchRepositoryBranches(repoUrl) {
+  const parsed = parseGitHubRepoUrl(repoUrl);
+  if (!parsed) {
+    return { success: false, error: "Invalid GitHub repository URL" };
+  }
+
+  try {
+    const repoInfo = await fetchGitHubRepoInfo(parsed.owner, parsed.repo);
+    if (repoInfo.isPrivate) {
+      return { success: false, error: "Private repositories are not supported" };
+    }
+
+    const branches = await fetchGitHubBranches(parsed.owner, parsed.repo);
+    const defaultBranch = repoInfo.defaultBranch || branches[0] || "main";
+
+    return {
+      success: true,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      defaultBranch,
+      branches,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error?.message || "Failed to fetch repository branches",
+    };
+  }
+}
+
+export async function scanRepository(repoUrl, branch) {
+  const parsed = parseGitHubRepoUrl(repoUrl);
+  if (!parsed) {
+    return { success: false, error: "Invalid GitHub repository URL" };
+  }
+
+  const branchName = String(branch || "").trim();
+  if (!branchName) {
+    return { success: false, error: "Branch is required" };
+  }
+
+  let workspace = null;
+
+  try {
+    const repoInfo = await fetchGitHubRepoInfo(parsed.owner, parsed.repo);
+    if (repoInfo.isPrivate) {
+      return { success: false, error: "Private repositories are not supported" };
+    }
+
+    if (repoInfo.sizeKb && repoInfo.sizeKb > REPO_SCAN_MAX_MB * 1024) {
+      return { success: false, error: `Repository exceeds ${REPO_SCAN_MAX_MB} MB limit.` };
+    }
+
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "lumen-repo-scan-"));
+    const repoDir = path.join(workspace, "repo");
+
+    await execFileAsync("git", [
+      "clone",
+      "--depth",
+      "1",
+      "--branch",
+      branchName,
+      "--single-branch",
+      parsed.normalizedUrl,
+      repoDir,
+    ]);
+
+    const sizeBytes = await getDirectorySizeBytes(repoDir);
+    if (sizeBytes > REPO_SCAN_MAX_MB * 1024 * 1024) {
+      return { success: false, error: `Repository exceeds ${REPO_SCAN_MAX_MB} MB limit after clone.` };
+    }
+
+    const projectKey = `repo-${uuidv4()}`;
+    await runSonarAnalysis(repoDir, projectKey, null);
+    const sarif = await fetchFileMetrics(projectKey);
+
+    return {
+      success: true,
+      sarif,
+      summary: summarizeSarif(sarif),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error?.message || "Repository scan failed",
+    };
+  } finally {
+    if (workspace) {
+      try {
+        await fs.rm(workspace, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.error("Failed to cleanup repo scan workspace:", cleanupError);
+      }
+    }
+  }
 }
 
 async function readSonarTaskId(projectDir) {
