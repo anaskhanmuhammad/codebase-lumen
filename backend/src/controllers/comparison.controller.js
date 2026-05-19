@@ -6,6 +6,7 @@ import {
   ingestSemgrepVulnerabilities,
   ingestSonarQubeVulnerabilities,
 } from "../services/vulnerabilityIngestion.service.js";
+import { refreshProjectLanguages } from "../services/projectLanguage.service.js";
 
 const prisma = new PrismaClient();
 
@@ -544,6 +545,8 @@ export const completeComparison = async (req, res) => {
           completedAt: new Date(),
         },
       });
+
+      await refreshProjectLanguages({ prisma: tx, projectId });
     }, {
       maxWait: 10000,
       timeout: 30000,

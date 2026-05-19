@@ -3,6 +3,7 @@ import { requireAuth } from "@clerk/express";
 import {
   getProjects,
   getProjectLanguages,
+  getProjectLanguageBreakdown,
   getAvailableLlms,
   createProject,
   getProjectById,
@@ -23,6 +24,7 @@ router.get("/", requireAuth(), getProjects);
 router.get("/llms", getAvailableLlms);
 router.get("/benchmarks/llm-leaderboard-dataset", requireAuth(), getLlmLeaderboardDataset);
 router.get("/languages", requireAuth(), getProjectLanguages);
+router.get("/:projectId/languages", requireAuth(), getProjectLanguageBreakdown);
 router.post("/", requireAuth(), createProject);
 router.get("/:projectId", requireAuth(), getProjectById);
 router.post("/:projectId/comparisons", requireAuth(), createComparison);

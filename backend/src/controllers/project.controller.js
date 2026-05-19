@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { refreshProjectLanguages } from "../services/projectLanguage.service.js";
 
 const prisma = new PrismaClient();
 
@@ -467,5 +468,49 @@ export const getLlmLeaderboardDataset = async (req, res) => {
   } catch (error) {
     console.error("Error fetching LLM leaderboard dataset:", error);
     return res.status(500).json({ error: "Failed to fetch benchmark dataset" });
+  }
+};
+
+/**
+ * GET /projects/:projectId/languages
+ * Returns language breakdown for a single project and persists it.
+ */
+export const getProjectLanguageBreakdown = async (req, res) => {
+  try {
+    const clerkUserId = req.auth()?.userId;
+    if (!clerkUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { clerkUserId },
+      select: { userId: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found in database" });
+    }
+
+    const { projectId } = req.params;
+    const project = await prisma.project.findFirst({
+      where: { projectId, userId: user.userId },
+      select: { projectId: true },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    const breakdown = await refreshProjectLanguages({ prisma, projectId });
+
+    return res.status(200).json({
+      projectId,
+      totalComparisons: breakdown.totalComparisons,
+      topLanguage: breakdown.topLanguage,
+      languages: breakdown.languages,
+    });
+  } catch (error) {
+    console.error("Error fetching project language breakdown:", error);
+    return res.status(500).json({ error: "Failed to fetch project language breakdown" });
   }
 };

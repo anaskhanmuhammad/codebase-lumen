@@ -198,6 +198,7 @@ export default function ProjectDetailPage() {
   const router = useRouter();
 
   const [project, setProject] = useState(null);
+  const [projectLanguages, setProjectLanguages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -225,6 +226,27 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (projectId) fetchProject();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getToken, projectId]);
+
+  const fetchProjectLanguages = async () => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${BACKEND_URL}/projects/${projectId}/languages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+      setProjectLanguages(data?.languages || []);
+    } catch {
+      setProjectLanguages([]);
+    }
+  };
+
+  useEffect(() => {
+    if (projectId) fetchProjectLanguages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getToken, projectId]);
 
@@ -307,6 +329,18 @@ export default function ProjectDetailPage() {
                     <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 font-medium">
                       <Code2 className="h-3 w-3" />
                       {project.topLanguage}
+                    </span>
+                  )}
+                  {projectLanguages.length > 0 && (
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      {projectLanguages.map((lang) => (
+                        <span
+                          key={lang.languageId}
+                          className="rounded-full bg-muted px-2.5 py-1 font-medium"
+                        >
+                          {lang.languageName} {lang.percentage}%
+                        </span>
+                      ))}
                     </span>
                   )}
                   <span className="inline-flex items-center gap-1">
